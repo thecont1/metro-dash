@@ -1,0 +1,62 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fly-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Fly.io deploy (sin)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+      url: https://namma-metro-in-charts.fly.dev
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        id: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --remote-only \
+            --primary-region sin \
+            --strategy rolling \
+            --wait-timeout 240 \
+            --app namma-metro-in-charts
+
+      - name: Smoke test
+        env:
+          APP_URL: https://namma-metro-in-charts.fly.dev
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error --max-time 15 \
+                "$APP_URL/api/chart" -o /tmp/chart.json; then
+              python3 -c "
+          import json
+          d = json.load(open('/tmp/chart.json'))
+          assert 'charts' in d and d['charts'], 'charts payload empty'
+          print('ok charts=', list(d['charts'].keys()))
+          "
+              exit 0
+            fi
+            echo "attempt $attempt failed; retrying in 10s"
+            sleep 10
+          done
+          echo "smoke test failed after retries"
+          curl --silent --show-error --max-time 15 "$APP_URL/" | head -40 || true
+          exit 1

@@ -165,7 +165,7 @@ This verifies embedded chart JSON, D3 scene initialisation, calendar/line naviga
 
 ## Deployment
 
-A multi-stage `Dockerfile` builds a release binary and runs it as a non-root user. The container exposes port 3000 and includes a health check against `/`.
+A multi-stage `Dockerfile` builds a release binary and runs it as a non-root user under `tini`. The container exposes port 3000 and includes a health check against `/`.
 
 ```sh
 docker build -t namma-metro-in-charts .
@@ -176,12 +176,35 @@ docker run --rm -p 3000:3000 \
   namma-metro-in-charts
 ```
 
-The included `fly.toml` is suitable for Fly.io after changing `app` to an available application name:
+### Fly.io
+
+The included `fly.toml` deploys to Fly.io under the application name `namma-metro-in-charts`, with the primary machine region set to `sin` (Singapore) and `min_machines_running = 1` so a random visitor never hits a cold container.
+
+A reusable named volume `metro_cache` is mounted at `/app/.cache` so the last-known-good CSV survives deploys and machine restarts.
 
 ```sh
-fly launch --copy-config --no-deploy
-fly volumes create metro_cache --size 1
-fly deploy
+# One-time app + volume setup, run from a machine that has the fly CLI
+# logged in as the deploy principal:
+fly launch --copy-config --no-deploy --name namma-metro-in-charts --region sin
+fly volumes create metro_cache --size 1 --region sin
+
+# Then on every release:
+fly deploy --remote-only --wait-timeout 300
 ```
 
+Continuous deploys run via `.github/workflows/deploy-fly.yml` on every push to `main`. The job gate is:
+
+1. `cargo fmt --check`
+2. `cargo clippy --all-targets --all-features -- -D warnings`
+3. `cargo test --all-targets`
+4. `flyctl deploy --remote-only --strategy rolling`
+5. Home-page smoke test (`GET https://namma-metro-in-charts.fly.dev/` → 200)
+6. `/api/chart` smoke test (verifies SSR-computed payload is being served)
+
+The Fly deploy token must be stored as the `FLY_API_TOKEN` secret in the GitHub repository settings (`https://github.com/thecont1/metro-dash/settings/secrets/actions`). Generate it with `fly tokens create deploy`.
+
 Any OCI host works if it supplies outbound HTTPS access to GitHub, sets `HOST=0.0.0.0`, routes to `PORT`, and optionally mounts persistent storage at `/app/.cache`.
+
+### Region selection
+
+The primary region is `sin` because Fly is phasing out `bom` (Mumbai). If you need to swap regions, edit `fly.toml`'s `primary_region` (and any region list in `[vm]` blocks) before deploying. Latency from Bangalore to `sin` is around 30–40 ms over the public backbone, which is fine for the app's mostly-static traffic; a Tokyo (`nrt`) fallback is a one-line addition if you want a second region in the pool.
