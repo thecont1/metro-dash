@@ -1,21 +1,17 @@
 app = "metrodash"
 primary_region = "sin"
-
-# Start with two regions so a Singapore outage or slow path from India can
-# still land on Tokyo or Mumbai while it exists. Mumbai is scheduled to shut
-# down, so leave a comment to revisit before the deprecation date lands.
-#
-# Fly will not boot a machine in a region without capacity; if Mumbai stops
-# accepting apps, just delete the `bom` line below and `fly deploy` again.
-#
-# primary_region = "sin"
-# [[vm]]
-#   size = "shared-cpu-1x"
-#   memory = "512mb"
-#   regions = ["sin", "nrt"]
+kill_signal = "SIGINT"
+kill_timeout = "5s"
 
 [build]
   dockerfile = "Dockerfile"
+
+[deploy]
+  # The release binary is ~70 MB and the build context is small. Give the
+  # builder enough headroom for the rust+topcoat dependency graph without
+  # bumping the cost on every CI run.
+  release_command = "true"
+  strategy = "rolling"
 
 [env]
   HOST = "0.0.0.0"
@@ -44,9 +40,11 @@ primary_region = "sin"
   path = "/"
   timeout = "5s"
 
-[deploy]
-  # The release binary is ~70 MB and the build context is small. Give the
-  # builder enough headroom for the rust+topcoat dependency graph without
-  # bumping the cost on every CI run.
-  release_command = "true"
-  strategy = "rolling"
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
+
+# Region selection: sin is primary because Fly is shutting down bom
+# (Mumbai). If sin becomes congested or unavailable, add `regions = ["nrt"]`
+# to the [[vm]] block above.
