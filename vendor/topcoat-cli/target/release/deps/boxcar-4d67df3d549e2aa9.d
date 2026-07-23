@@ -1,0 +1,12 @@
+/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/deps/boxcar-4d67df3d549e2aa9.d: /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/lib.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/loom.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/buckets.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/mod.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/raw.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/../README.md
+
+/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/deps/libboxcar-4d67df3d549e2aa9.rlib: /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/lib.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/loom.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/buckets.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/mod.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/raw.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/../README.md
+
+/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/deps/libboxcar-4d67df3d549e2aa9.rmeta: /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/lib.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/loom.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/buckets.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/mod.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/raw.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/../README.md
+
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/lib.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/loom.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/buckets.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/mod.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/vec/raw.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/boxcar-0.2.14/src/../README.md:

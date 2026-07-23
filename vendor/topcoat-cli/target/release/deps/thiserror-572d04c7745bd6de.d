@@ -1,0 +1,14 @@
+/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/deps/thiserror-572d04c7745bd6de.d: /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/build/thiserror-161ab6be94d6a2a7/out/private.rs
+
+/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/deps/libthiserror-572d04c7745bd6de.rlib: /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/build/thiserror-161ab6be94d6a2a7/out/private.rs
+
+/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/deps/libthiserror-572d04c7745bd6de.rmeta: /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/build/thiserror-161ab6be94d6a2a7/out/private.rs
+
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs:
+/Users/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs:
+/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/build/thiserror-161ab6be94d6a2a7/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/home/DEV/tools/metro-dash/vendor/topcoat-cli/target/release/build/thiserror-161ab6be94d6a2a7/out

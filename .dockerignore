@@ -1,0 +1,7 @@
+.git
+.cache
+target
+vendor/topcoat-cli
+vendor/topcoat/target
+.DS_Store
+*.log

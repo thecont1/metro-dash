@@ -1,0 +1,30 @@
+app = "namma-metro-in-charts"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "3000"
+  METRO_CACHE_PATH = "/app/.cache/namma-metro-ridership.csv"
+  METRO_REFRESH_SECONDS = "21600"
+
+[[mounts]]
+  source = "metro_cache"
+  destination = "/app/.cache"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/"
+    timeout = "5s"
