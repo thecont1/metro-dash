@@ -1,4 +1,4 @@
-app = "namma-metro-in-charts"
+app = "metrodash"
 primary_region = "sin"
 
 # Start with two regions so a Singapore outage or slow path from India can

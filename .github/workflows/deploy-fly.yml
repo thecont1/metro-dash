@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 25
     environment:
       name: production
-      url: https://namma-metro-in-charts.fly.dev
+      url: https://nammametro.fly.dev
     permissions:
       contents: read
 
@@ -36,11 +36,11 @@ jobs:
             --primary-region sin \
             --strategy rolling \
             --wait-timeout 240 \
-            --app namma-metro-in-charts
+            --app nammametro
 
       - name: Smoke test
         env:
-          APP_URL: https://namma-metro-in-charts.fly.dev
+          APP_URL: https://nammametro.fly.dev
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6; do
