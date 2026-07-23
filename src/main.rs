@@ -406,7 +406,16 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
         dataset.refreshed_at
     );
     let default_status = default_range_note(&dataset);
-    let reset_range = default_range(&dataset);
+    // The default range must be computed through the same snap-to-nearest
+    // path as the runtime URL parameters, otherwise "Reset to Jan–Jun"
+    // sticks on `aria-disabled="true"` whenever DEFAULT_START/DEFAULT_END
+    // fall on dates that aren't in the records (the snapped pair and
+    // the raw constant pair disagree on equality).
+    let reset_range = choose_range(
+        &dataset,
+        Some(DEFAULT_START),
+        Some(DEFAULT_END),
+    );
     let reset_disabled = range == reset_range;
     let all_disabled = range.start == dataset.min_date && range.end == dataset.max_date;
     let available_dates = dataset
@@ -483,44 +492,22 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
                             "Source data on GitHub ↗"
                         </a>
                     </header>
-                    <section class="prepare-band" aria-labelledby="prepare-title">
-                        <div class="band-heading">
-                            <p class="eyebrow">"01 · SCOPE"</p>
-                            <h2 id="prepare-title">"Prepare the data"</h2>
-                            <p>
-                                "Choose a window. Every summary and chart below recalculates from these inclusive dates."
-                            </p>
-                        </div>
+                    <div class="prepare-band">
+                        <p class="eyebrow">"01 · SCOPE"</p>
                         <div
                             class="range-controls"
                             data-available-dates=(available_dates)
                         >
-                            <div class="range-inputs">
-                                <label>
-                                    <span>"From"</span>
-                                    <input
-                                        id="start-date"
-                                        type="date"
-                                        min=(dataset.min_date.to_string())
-                                        max=(dataset.max_date.to_string())
-                                        value=(range.start.to_string())
-                                    >
-                                </label>
-                                <span class="range-dash">"—"</span>
-                                <label>
-                                    <span>"To"</span>
-                                    <input
-                                        id="end-date"
-                                        type="date"
-                                        min=(dataset.min_date.to_string())
-                                        max=(dataset.max_date.to_string())
-                                        value=(range.end.to_string())
-                                    >
-                                </label>
-                            </div>
-                            <div class="range-readable" id="range-readable">
-                                (range_label.clone())
-                            </div>
+                            <label class="range-input">
+                                <span class="range-input-label">"From"</span>
+                                <input
+                                    id="start-date"
+                                    type="date"
+                                    min=(dataset.min_date.to_string())
+                                    max=(dataset.max_date.to_string())
+                                    value=(range.start.to_string())
+                                >
+                            </label>
                             <div class="range-slider" aria-label="Date range slider">
                                 <div class="slider-track"></div>
                                 <input
@@ -541,6 +528,21 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
                                     aria-label="End date"
                                 >
                             </div>
+                            <label class="range-input">
+                                <span class="range-input-label">"To"</span>
+                                <input
+                                    id="end-date"
+                                    type="date"
+                                    min=(dataset.min_date.to_string())
+                                    max=(dataset.max_date.to_string())
+                                    value=(range.end.to_string())
+                                >
+                            </label>
+                        </div>
+                        <div class="range-status-row">
+                            <p class="range-readable" id="range-readable">
+                                (range_label.clone())
+                            </p>
                             <div class="range-actions">
                                 <a
                                     class="text-button"
@@ -563,7 +565,7 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
                                 (default_status)
                             </p>
                         </div>
-                    </section>
+                    </div>
                     <section class="chart-stage" aria-labelledby="chart-title">
                         <div class="stage-topline">
                             <p class="eyebrow">
@@ -2267,28 +2269,29 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .source-link{align-self:flex-start;font-family:var(--font-header);font-weight:700;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);text-decoration:none;border:1px solid var(--ink);padding:.45rem .7rem;background:transparent}
 .source-link:hover{background:var(--ink);color:var(--paper)}
 
-/* ---------- Prepare band ---------- */
-.prepare-band{display:grid;grid-template-columns:auto 1fr;gap:18px 28px;padding:8px 0 14px;border-bottom:1px solid var(--hairline)}
-.band-heading{align-self:end}
-.band-heading h2{font-family:var(--font-body);font-size:1.05rem;font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0}
-.band-heading p:not(.eyebrow){font-size:.85rem;color:var(--muted);line-height:1.45;max-width:34ch;margin:.3rem 0 0}
-.range-controls{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:6px 14px}
-.range-inputs{display:flex;align-items:end;gap:10px}
-.range-inputs label{display:grid;gap:3px;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
-.range-inputs input,.range-inputs select{border:1px solid var(--hairline);background:var(--surface);padding:6px 9px;color:var(--ink);font:600 .85rem var(--font-body);min-height:34px;width:120px}
-.range-inputs input:focus,.range-inputs select:focus{outline:2px solid var(--accent);outline-offset:1px}
-.range-dash{color:var(--muted);padding-bottom:7px}
-.range-readable{font:600 1.05rem/1 var(--font-body);color:var(--ink);letter-spacing:-.01em}
-.range-readable .dim{color:var(--muted);font-weight:400}
-.range-slider{position:relative;height:26px;grid-column:1/-1}
-.slider-track{position:absolute;top:12px;left:0;right:0;height:3px;background:var(--hairline)}
-.range-slider input{position:absolute;top:0;left:0;width:100%;height:26px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
+/* ---------- Prepare band (single control row) ---------- */
+/* The prepare band is no longer a labelled section. It renders
+   as a control row: eyebrow chip + From-input + slider + To-input
+   on one line, with a status row underneath for the readable
+   label, action links, and "default window available" status. */
+.prepare-band{display:flex;flex-direction:column;gap:6px;padding:6px 0 8px;border-bottom:1px solid var(--hairline)}
+.prepare-band .eyebrow{margin:0}
+.range-controls{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;width:100%}
+.range-input{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:6px;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+.range-input-label{color:inherit}
+.range-input input{border:1px solid var(--hairline);background:var(--surface);padding:5px 7px;color:var(--ink);font:600 .85rem var(--font-body);min-height:32px;width:128px}
+.range-input input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.range-slider{position:relative;height:30px}
+.slider-track{position:absolute;top:14px;left:0;right:0;height:3px;background:var(--hairline)}
+.range-slider input{position:absolute;top:0;left:0;width:100%;height:30px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
 .range-slider input::-webkit-slider-thumb{appearance:none;pointer-events:auto;width:18px;height:18px;border:2px solid var(--paper);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:grab;margin-top:6px}
 .range-slider input::-moz-range-thumb{pointer-events:auto;width:14px;height:14px;border:2px solid var(--paper);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:grab}
-.range-actions{display:flex;gap:18px;flex-wrap:wrap;grid-column:1/-1}
-.text-button{font-family:var(--font-body);font-size:.78rem;font-weight:700;letter-spacing:.02em;color:var(--accent);text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px}
+.range-status-row{display:flex;align-items:center;gap:12px;padding-top:6px;flex-wrap:wrap}
+.range-readable{margin:0;font:600 .95rem/1 var(--font-body);color:var(--ink);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.range-actions{display:flex;gap:14px;align-items:center}
+.text-button{font-family:var(--font-body);font-size:.74rem;font-weight:700;letter-spacing:.02em;color:var(--accent);text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px}
 .text-button[aria-disabled="true"]{color:var(--muted-2);text-decoration-color:var(--muted-2);cursor:not-allowed;pointer-events:none}
-.range-status{grid-column:1/-1;margin:0;color:var(--muted);font-size:.72rem;line-height:1.4}
+.range-status{margin:0;color:var(--muted);font-size:.7rem;line-height:1.4;flex-basis:100%}
 
 /* ---------- Chart stage ---------- */
 .chart-stage{display:flex;flex-direction:column;min-height:0}
