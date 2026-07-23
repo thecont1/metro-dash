@@ -18,6 +18,11 @@ const SOURCE_PAGE_URL: &str = "https://github.com/thecont1/namma-metro-ridership
 const DEFAULT_START: &str = "2026-01-01";
 const DEFAULT_END: &str = "2026-06-30";
 const DEFAULT_CACHE_PATH: &str = ".cache/namma-metro-ridership.csv";
+// The "Reset" button uses these anchor dates. The first-visit default
+// shown when no `?start=&end=` is in the URL is computed dynamically
+// from the dataset (last `FIRST_VISIT_WINDOW_DAYS` days), so the user
+// lands on a comfortable calendar view instead of 78 weeks.
+const FIRST_VISIT_WINDOW_DAYS: i64 = 90;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RidershipRecord {
@@ -232,23 +237,20 @@ struct ChartDefinition {
     slug: &'static str,
     title: &'static str,
     deck: &'static str,
-    short_name: &'static str,
 }
 
 const CHARTS: [ChartDefinition; 2] = [
     ChartDefinition {
         chart: Chart::Calendar,
         slug: "calendar",
-        title: "Daily ridership calendar",
-        deck: "Each square is one calendar day. Deeper mauve means higher total ridership within the selected period.",
-        short_name: "Calendar",
+        title: "Daily Total Ridership",
+        deck: "Each square is one calendar day. Deeper purple means a higher total than the rest of the days you've selected.",
     },
     ChartDefinition {
         chart: Chart::CommuteCasual,
         slug: "commute-casual",
-        title: "Average daily ridership: Commute vs casual",
-        deck: "Average journeys by day of week, using the dates currently selected above.",
-        short_name: "Commute vs casual",
+        title: "Commute vs Casual by Weekday",
+        deck: "Average journeys by day of week, using the dates you've selected.",
     },
 ];
 
@@ -395,6 +397,8 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
     } else {
         line_chart_markup(&summary)
     };
+    let previous_definition = if active_calendar { chart.definition() } else { &CHARTS[0] };
+    let next_definition = if active_calendar { &CHARTS[1] } else { chart.definition() };
     let prior_disabled = if active_calendar { "true" } else { "false" };
     let next_disabled = if active_calendar { "false" } else { "true" };
     let data_note = format!(
@@ -418,6 +422,8 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
     );
     let reset_disabled = range == reset_range;
     let all_disabled = range.start == dataset.min_date && range.end == dataset.max_date;
+    let chart_index_str = (chart.index() + 1).to_string();
+    let chart_total_str = CHARTS.len().to_string();
     let available_dates = dataset
         .records
         .iter()
@@ -493,7 +499,6 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
                         </a>
                     </header>
                     <div class="prepare-band">
-                        <p class="eyebrow">"01 · SCOPE"</p>
                         <div
                             class="range-controls"
                             data-available-dates=(available_dates)
@@ -569,73 +574,50 @@ async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart)
                     <section class="chart-stage" aria-labelledby="chart-title">
                         <div class="stage-topline">
                             <p class="eyebrow">
-                                "02 · CHART "
-                                ((chart.index() + 1).to_string())
+                                "Chart "
+                                <span class="chart-index">(chart_index_str)</span>
+                                " of "
+                                <span class="chart-total">(chart_total_str)</span>
                             </p>
-                            <p class="selection-label">(range_label.clone())</p>
+                            <p class="selection-label">
+                                (range_label.clone())
+                            </p>
                         </div>
-                        <h2 id="chart-title">(chart_title)</h2>
+                        <div class="chart-title-row">
+                            <h2 id="chart-title">(chart_title)</h2>
+                            <div class="chart-pager">
+                                <a
+                                    class="arrow-button prev"
+                                    aria-label=(format!("Previous chart: {}", previous_definition.title))
+                                    href=(previous_href.clone())
+                                    aria-disabled=(prior_disabled)
+                                    tabindex=(if active_calendar { "-1" } else { "0" })
+                                >
+                                    <span class="arrow-glyph">"←"</span>
+                                    <span class="arrow-glyph-label">"Previous"</span>
+                                </a>
+                                <a
+                                    class="arrow-button next"
+                                    aria-label=(format!("Next chart: {}", next_definition.title))
+                                    href=(next_href)
+                                    aria-disabled=(next_disabled)
+                                    tabindex=(if active_calendar { "0" } else { "-1" })
+                                >
+                                    <span class="arrow-glyph-label">"Next"</span>
+                                    <span class="arrow-glyph">"→"</span>
+                                </a>
+                            </div>
+                        </div>
                         <p class="chart-deck">(chart_deck)</p>
                         <div class="chart-shell">
                             (Unescaped::new_unchecked(chart_body))
                         </div>
                         <div class="chart-method">
                             (if active_calendar {
-                                "Percentile bands use interpolated quantiles of valid totals in this selection. Missing dates stay visible as crossed cells."
+                                "Each cell shows one day. The hue tells you how that day's total compares with the other days you've selected — lighter means lower, darker means higher. Crossed cells are days BMRCL didn't publish."
                             } else {
-                                "Lines show weekday pattern, not a chronological time series. Averages omit dates missing any component of the selected fare-media group."
+                                "Lines show the weekday pattern for two rider groups: people who pay by Smart Card or NCMC (closed-loop), and everyone else (QR + token + group). Averages skip days missing any component of the relevant group."
                             })
-                        </div>
-                        <div class="navigation-row">
-                            <a
-                                class="arrow-button"
-                                aria-label="Previous chart: Daily ridership calendar"
-                                href=(previous_href.clone())
-                                aria-disabled=(prior_disabled)
-                                tabindex=(if active_calendar { "-1" } else { "0" })
-                            >
-                                <span class="arrow-glyph">"←"</span>
-                                <span>"Previous"</span>
-                            </a>
-                            <nav class="chart-nav" aria-label="Chart navigation">
-                                <a
-                                    class=(if active_calendar {
-                                        "chart-tab active"
-                                    } else {
-                                        "chart-tab"
-                                    })
-                                    href=(previous_href)
-                                >
-                                    "01 · "
-                                    (CHARTS[0].short_name)
-                                </a>
-                                <span class="chart-position">
-                                    ((chart.index() + 1).to_string())
-                                    " / "
-                                    (CHARTS.len().to_string())
-                                </span>
-                                <a
-                                    class=(if !active_calendar {
-                                        "chart-tab active"
-                                    } else {
-                                        "chart-tab"
-                                    })
-                                    href=(next_href.clone())
-                                >
-                                    "02 · "
-                                    (CHARTS[1].short_name)
-                                </a>
-                            </nav>
-                            <a
-                                class="arrow-button"
-                                aria-label="Next chart: Commute vs casual"
-                                href=(next_href)
-                                aria-disabled=(next_disabled)
-                                tabindex=(if active_calendar { "0" } else { "-1" })
-                            >
-                                <span>"Next"</span>
-                                <span class="arrow-glyph">"→"</span>
-                            </a>
                         </div>
                     </section>
                     <footer class="site-footer">
@@ -753,8 +735,9 @@ fn all_data_link(dataset: &Dataset, chart: Chart) -> String {
 fn choose_range(dataset: &Dataset, start: Option<&str>, end: Option<&str>) -> DateRange {
     let requested_start = start.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
     let requested_end = end.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
-    let mut start = requested_start.unwrap_or_else(|| default_date(dataset, DEFAULT_START));
-    let mut end = requested_end.unwrap_or_else(|| default_date(dataset, DEFAULT_END));
+    let default_pair = default_first_visit_range(dataset);
+    let mut start = requested_start.unwrap_or(default_pair.start);
+    let mut end = requested_end.unwrap_or(default_pair.end);
     start = nearest_available(dataset, start);
     end = nearest_available(dataset, end);
     if start > end {
@@ -763,10 +746,16 @@ fn choose_range(dataset: &Dataset, start: Option<&str>, end: Option<&str>) -> Da
     DateRange { start, end }
 }
 
-fn default_date(dataset: &Dataset, value: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map(|date| nearest_available(dataset, date))
-        .unwrap_or(dataset.min_date)
+/// Default range for a first visit (no `?start=&end=` in the URL): the
+/// last `FIRST_VISIT_WINDOW_DAYS` days of the dataset, snapped into
+/// available records. Caps to the full dataset extent when narrower
+/// than the requested window, which keeps tiny datasets renderable.
+fn default_first_visit_range(dataset: &Dataset) -> DateRange {
+    let end_target = dataset.max_date;
+    let start_target = end_target - chrono::Duration::days(FIRST_VISIT_WINDOW_DAYS);
+    let start = nearest_available(dataset, start_target.max(dataset.min_date));
+    let end = nearest_available(dataset, end_target);
+    DateRange { start, end }
 }
 
 fn nearest_available(dataset: &Dataset, target: NaiveDate) -> NaiveDate {
@@ -1156,7 +1145,7 @@ fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
         charts: PayloadCharts {
             calendar: CalendarPayload {
                 cells: calendar_payload_cells(dataset, range, &summary),
-                legend: legend_payload(),
+                legend: Vec::new(),
             },
             commute_casual: CommuteCasualPayload {
                 weekdays: weekday_payloads(),
@@ -1235,25 +1224,6 @@ fn calendar_cell_label(
         ),
         _ => format!("{}: Missing data", date.format("%A, %-d %B %Y")),
     }
-}
-
-fn legend_payload() -> Vec<LegendItemPayload> {
-    [
-        "< p2",
-        "p2 – p5",
-        "p5 – p10",
-        "p10 – p25",
-        "p25 – p50",
-        "p50 – p75",
-        "p75 – p90",
-        "p90 – p95",
-        "p95 – p98",
-        "> p98",
-    ]
-    .iter()
-    .enumerate()
-    .map(|(band_index, label)| LegendItemPayload { label, band_index })
-    .collect()
 }
 
 fn weekday_payloads() -> Vec<WeekdayPayload> {
@@ -1456,39 +1426,26 @@ fn calendar_markup(dataset: &Dataset, range: DateRange, summary: &RangeSummary) 
 }
 
 fn legend_markup(summary: &RangeSummary) -> String {
-    let labels = [
-        "< p2",
-        "p2 – p5",
-        "p5 – p10",
-        "p10 – p25",
-        "p25 – p50",
-        "p50 – p75",
-        "p75 – p90",
-        "p90 – p95",
-        "p95 – p98",
-        "> p98",
-    ];
-    let mut html = String::from(r#"<div class="legend" aria-label="Percentile bands">"#);
-    if summary.valid_total_count < 10 {
-        html.push_str(r#"<p class="notice">Insufficient data for percentile bands; colour distinctions are intentionally muted.</p>"#);
-    }
-    for (index, label) in labels.iter().enumerate() {
-        html.push_str(&format!(
-            r#"<span><i class="swatch band-{index}"></i>{label}</span>"#
-        ));
-    }
-    html.push_str(
-        r#"<span><i class="swatch missing-swatch"></i>Crossed cells: missing data</span>"#,
-    );
-    if let (Some(min), Some(max)) = (summary.total_min, summary.total_max) {
-        html.push_str(&format!(
-            r#"<span class="legend-range">Observed: {} – {}</span>"#,
+    let observed = match (summary.total_min, summary.total_max) {
+        (Some(min), Some(max)) if (max - min).abs() > f64::EPSILON => format!(
+            "Observed: {} – {}",
             compact_number(min),
             compact_number(max)
-        ));
-    }
-    html.push_str("</div>");
-    html
+        ),
+        _ => "Observed range unavailable for this selection".to_string(),
+    };
+    let buckets_note = match summary.valid_total_count {
+        0 => "Buckets unavailable: no published totals in this range.".to_string(),
+        1..=9 => format!(
+            "Buckets are approximate ({num} day{plural} in range; tint carries limited signal).",
+            num = summary.valid_total_count,
+            plural = if summary.valid_total_count == 1 { "" } else { "s" }
+        ),
+        _ => "Each cell's shade maps to its percentile of daily ridership within your selection.".to_string(),
+    };
+    format!(
+        r#"<div class="legend" aria-label="Color scale"><span class="legend-gradient" aria-hidden="true"></span><p class="legend-caption">{observed}</p><p class="legend-meta">{buckets_note}</p><p class="legend-meta legend-missing-note">Crossed cells = days BMRCL didn't publish a total for.</p></div>"#
+    )
 }
 
 fn band_label(value: f64, summary: &RangeSummary) -> Option<&'static str> {
@@ -1822,19 +1779,9 @@ const CLIENT_SCRIPT: &str = r#"(() => {
   const GSAP = window.gsap;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const canAnimate = !reducedMotion;
-  const chartRegistry = {
-    calendar: {
-      index: 0,
-      title: 'Daily ridership calendar',
-      deck: 'Each square is one calendar day. Deeper mauve means higher total ridership within the selected period.'
-    },
-    'commute-casual': {
-      index: 1,
-      title: 'Average daily ridership: Commute vs casual',
-      deck: 'Average journeys by day of week, using the dates currently selected above.'
-    }
-  };
-
+  // Chart titles are rendered server-side from ChartDefinition. The
+  // client only needs the active-chart switch for arrow-key navigation;
+  // labels are read from the live DOM, not a duplicated registry.
   const startInput = document.querySelector('#start-date');
   const endInput = document.querySelector('#end-date');
   const startSlider = document.querySelector('#range-start');
@@ -1847,17 +1794,16 @@ const CLIENT_SCRIPT: &str = r#"(() => {
   const chartDeck = document.querySelector('.chart-deck');
   const chartEyebrow = document.querySelector('.stage-topline .eyebrow');
   const selectionLabel = document.querySelector('.selection-label');
-  const chartPosition = document.querySelector('.chart-position');
-  const priorButton = document.querySelector('.arrow-button[aria-label^="Previous"]');
-  const nextButton = document.querySelector('.arrow-button[aria-label^="Next"]');
-  const tabs = [...document.querySelectorAll('.chart-tab')];
+  const priorButton = document.querySelector('.arrow-button.prev');
+  const nextButton = document.querySelector('.arrow-button.next');
   const payloadNode = document.querySelector('#chart-data');
   if (!startInput || !endInput || !startSlider || !endSlider || !payloadNode || !chartShell) return;
 
   let payload = JSON.parse(payloadNode.textContent || '{}');
   let dates = payload.dataset?.availableDates || (document.querySelector('.range-controls')?.dataset.availableDates || '').split(',').filter(Boolean);
   if (!dates.length) return;
-  let activeChart = chartRegistry[new URLSearchParams(window.location.search).get('chart')] ? new URLSearchParams(window.location.search).get('chart') : 'calendar';
+  const initialParams = new URLSearchParams(window.location.search);
+  let activeChart = initialParams.get('chart') === 'commute-casual' ? 'commute-casual' : 'calendar';
   let rangeTimer;
 
   const dateFormat = (value) => new Intl.DateTimeFormat('en-IN', {day: 'numeric', month: 'short', year: 'numeric'}).format(new Date(`${value}T00:00:00`));
@@ -1930,14 +1876,12 @@ const CLIENT_SCRIPT: &str = r#"(() => {
   };
 
   const syncChartChrome = () => {
-    const def = chartRegistry[activeChart];
-    if (chartTitle) chartTitle.textContent = def.title;
-    if (chartDeck) chartDeck.textContent = def.deck;
-    if (chartEyebrow) chartEyebrow.textContent = `02 · CHART ${def.index + 1}`;
-    if (chartPosition) chartPosition.textContent = `${def.index + 1} / 2`;
+    // Title, deck, and eyebrow are rendered server-side from
+    // ChartDefinition; the client only owns disabled-state on the
+    // prev/next buttons (and would re-render them on a hot
+    // swap if we ever introduce one).
     setDisabled(priorButton, activeChart === 'calendar');
     setDisabled(nextButton, activeChart === 'commute-casual');
-    tabs.forEach((tab, index) => tab.classList.toggle('active', index === def.index));
   };
 
   const ensureScene = (className) => {
@@ -2152,7 +2096,7 @@ const CLIENT_SCRIPT: &str = r#"(() => {
     event.preventDefault();
     if (link.getAttribute('aria-disabled') === 'true') return;
     const params = new URLSearchParams(new URL(link.href).search);
-    activeChart = chartRegistry[params.get('chart')] ? params.get('chart') : activeChart;
+    activeChart = params.get('chart') === 'commute-casual' ? 'commute-casual' : 'calendar';
     updateUrl({start: payload.range.start, end: payload.range.end, chart: activeChart});
     renderActiveChart(true);
   });
@@ -2275,7 +2219,6 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    on one line, with a status row underneath for the readable
    label, action links, and "default window available" status. */
 .prepare-band{display:flex;flex-direction:column;gap:6px;padding:6px 0 8px;border-bottom:1px solid var(--hairline)}
-.prepare-band .eyebrow{margin:0}
 .range-controls{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;width:100%}
 .range-input{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:6px;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
 .range-input-label{color:inherit}
@@ -2296,8 +2239,20 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 /* ---------- Chart stage ---------- */
 .chart-stage{display:flex;flex-direction:column;min-height:0}
 .stage-topline{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin-bottom:4px}
-.selection-label{margin:0;color:var(--muted);font-size:.72rem;letter-spacing:.05em;text-transform:uppercase;font-family:var(--font-body)}
-.chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0 0 2px}
+.selection-label{margin:0;color:var(--muted);font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;font-family:var(--font-body);font-variant-numeric:tabular-nums}
+.eyebrow .chart-index,.eyebrow .chart-total{color:var(--ink)}
+.chart-title-row{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:2px 0 0}
+.chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0}
+.chart-deck{font-family:var(--font-display);font-style:italic;font-size:.95rem;color:var(--ink-muted);max-width:62ch;margin:0 0 8px}
+.chart-shell{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.chart-shell.has-render{position:relative}
+.chart-pager{display:flex;gap:18px;align-items:center}
+.chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:6px 0;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
+.chart-pager .arrow-button[aria-disabled="false"]:hover{color:var(--accent)}
+.chart-pager .arrow-button[aria-disabled="true"]{color:var(--muted-2);cursor:not-allowed;pointer-events:none}
+.chart-pager .arrow-glyph{font-size:1.2rem;font-weight:300;line-height:.5}
+.chart-pager .arrow-glyph-label{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;line-height:1}
 .chart-deck{font-family:var(--font-display);font-style:italic;font-size:.95rem;color:var(--ink-muted);max-width:62ch;margin:0 0 8px}
 .chart-shell{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
@@ -2312,7 +2267,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .calendar-wrap,.line-chart-wrap{flex:1 1 auto;min-height:0}
 .d3-scene{flex:1 1 auto;min-height:0}
 .d3-scene[hidden]{display:none}
-.d3-calendar-svg,.d3-line-svg{display:block;width:100%;height:auto;max-width:100%}
+.d3-calendar-svg,.d3-line-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
 
 /* SSR calendar layout.
    cell/gap chosen so the full ~78-week view fits inside ~1200px
@@ -2330,13 +2285,12 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .calendar-cell.missing{background:var(--paper);border:1px solid var(--missing);background-image:linear-gradient(45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%),linear-gradient(-45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%);background-size:100% 100%}
 .calendar-cell.neutral{background:var(--hairline)}
 .band-0{background:var(--band-0)}.band-1{background:var(--band-1)}.band-2{background:var(--band-2)}.band-3{background:var(--band-3)}.band-4{background:var(--band-4)}.band-5{background:var(--band-5)}.band-6{background:var(--band-6)}.band-7{background:var(--band-7)}.band-8{background:var(--band-8)}.band-9{background:var(--band-9)}
-.month-label{position:absolute;top:0;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;font-family:var(--font-body)}
-.legend{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin:10px 0 0;color:var(--muted);font-size:.66rem;letter-spacing:.02em;font-family:var(--font-body)}
-.legend span{display:inline-flex;gap:5px;align-items:center}
-.swatch{display:inline-block;width:11px;height:11px;background:var(--accent)}
-.missing-swatch{border:1px solid var(--missing);background:linear-gradient(45deg,transparent 43%,var(--missing) 44%,var(--missing) 56%,transparent 57%),linear-gradient(-45deg,transparent 43%,var(--missing) 44%,var(--missing) 56%,transparent 57%)}
-.legend-range{font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
-.notice{flex-basis:100%;margin:0;color:var(--missing);font-weight:700}
+.month-label{position:absolute;top:0;left:0;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;font-family:var(--font-body);pointer-events:none;/* horizontal position is computed by the D3-enhancement pass; SSR fallback relies on the .month-label[data-week] grid-column in calendar_markup. */}
+.legend{display:flex;flex-direction:column;gap:6px;margin:10px 0 0;color:var(--muted);font-size:.7rem;line-height:1.45;letter-spacing:.02em;font-family:var(--font-body)}
+.legend-caption{margin:0;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:.005em}
+.legend-meta{margin:0;color:var(--muted)}
+.legend-missing-note{color:var(--missing)}
+.legend-gradient{display:block;width:100%;height:14px;border:1px solid var(--hairline);border-radius:2px;background:linear-gradient(to right,var(--band-0),var(--band-3),var(--band-6),var(--band-9))}
 
 /* SSR line chart */
 .line-chart-wrap{width:100%}
@@ -2361,18 +2315,6 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 table{width:100%;border-collapse:collapse;font-size:.7rem}
 th,td{padding:4px 6px;border-bottom:1px solid var(--hairline);text-align:left;white-space:nowrap}
 th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase}
-
-/* Chart nav (Previous / Next arrows + tab strip) */
-.navigation-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:20px;padding-top:6px}
-.arrow-button{display:inline-flex;align-items:center;gap:9px;width:max-content;padding:6px 0;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;text-decoration:none;letter-spacing:.01em}
-.arrow-button:last-child{justify-self:end}
-.arrow-button[aria-disabled="false"]:hover{color:var(--accent)}
-.arrow-button[aria-disabled="true"]{color:var(--muted-2);cursor:not-allowed;pointer-events:none}
-.arrow-glyph{font-size:1.2rem;font-weight:300;line-height:.5}
-.chart-nav{display:flex;align-items:center;gap:14px}
-.chart-tab{color:var(--muted);font-size:.68rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;font-family:var(--font-body)}
-.chart-tab.active{color:var(--ink);border-bottom:2px solid var(--accent);padding-bottom:3px}
-.chart-position{font-weight:800;font-family:var(--font-mono);font-size:.7rem;color:var(--muted)}
 
 /* Footer */
 .site-footer{padding:8px 0 0;border-top:1px solid var(--hairline);color:var(--muted);font-size:.66rem;line-height:1.4;display:flex;justify-content:space-between;align-items:flex-end;gap:18px}
@@ -2666,7 +2608,10 @@ mod tests {
         assert_eq!(payload.range.end, "2026-01-20");
         assert_eq!(payload.summary.calendar_days, 20);
         assert_eq!(payload.charts.calendar.cells.len(), 20);
-        assert_eq!(payload.charts.calendar.legend.len(), 10);
+        // Legend is rendered server-side as a continuous gradient strip
+        // (see `legend_markup`); the JSON `legend` field is reserved for
+        // future D3-driven legends and is empty by design.
+        assert!(payload.charts.calendar.legend.is_empty());
         assert!(
             payload
                 .charts
