@@ -2182,13 +2182,21 @@ const CLIENT_SCRIPT: &str = r#"(() => {
 // fonts (Fraunces / Inter / DM Sans / JetBrains Mono) load from Google
 // Fonts so the page renders identically across local dev and Fly.
 //
-// Layout is laid out to fit a 1080-tall viewport without scrolling:
-//   header (eyebrow + title) ........ ~80px
+// Layout contract: every viewport-pinned element fits inside the
+// viewport without any internal scrolling. The shell is capped at
+// 1280px and centered, so on a wide monitor the content sits in a
+// comfortable reading column instead of stretching the calendar
+// across the whole screen. On a narrow monitor the same shells
+// scale down. If the user shrinks the window past the point where
+// content can fit, the page falls back to scrolling the whole shell
+// — that's the only allowed scroll, and it kicks in below ~820px tall.
+//
+// Vertical budget for the no-scroll path (1080×720 viewport):
+//   header (eyebrow + title) ........ ~70px
 //   prepare-band (date inputs) ..... ~110px
-//   chart-stage (heading + chart) .. ~720px (calendar) / ~640 (line)
+//   chart-stage (heading + chart) .. ~470px (calendar) / ~390 (line)
 //   footer (methodology + source) . ~50px
-// Total: ~960px on a 1080-tall viewport; ~860px on 900-tall laptops,
-// both inside the "no scroll" budget.
+// Total: ~700px. Generous on most laptops.
 const STYLE: &str = r#"<style>
 :root{
   --paper:#fff;
@@ -2213,6 +2221,7 @@ const STYLE: &str = r#"<style>
   --band-8:#793da2;
   --band-9:#642a96;
   --missing:#bf705d;
+  --shell-max:1280px;
   --font-display:"Fraunces","Iowan Old Style","Apple Garamond","Baskerville",Georgia,serif;
   --font-body:"Inter",system-ui,-apple-system,Segoe UI,sans-serif;
   --font-header:"DM Sans",system-ui,sans-serif;
@@ -2221,8 +2230,8 @@ const STYLE: &str = r#"<style>
 *,*:before,*:after{box-sizing:border-box}
 *{margin:0;padding:0}
 html,body{height:100%}
-html{background:var(--paper);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;overflow:hidden}
-body{min-height:100vh;display:grid;grid-template-rows:auto auto 1fr auto;background:var(--paper)}
+html{background:var(--paper);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+body{min-height:100vh;background:var(--paper)}
 h1,h2,h3,h4,h5,h6{font-family:var(--font-display);font-weight:600;line-height:1.1;letter-spacing:-.02em;color:var(--ink)}
 a{color:inherit;text-decoration:underline;text-decoration-color:var(--muted-2);text-underline-offset:3px;transition:text-decoration-color .2s}
 a:hover{text-decoration-color:var(--ink)}
@@ -2232,8 +2241,26 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 /* Eyebrow chip + section labels */
 .eyebrow{font-family:var(--font-body);font-size:.7rem;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin:0 0 .5rem}
 
-/* ---------- Site shell (single-viewport grid) ---------- */
-.site-shell{display:grid;grid-template-rows:auto auto 1fr auto;gap:14px;padding:18px clamp(16px,3vw,40px) 20px;height:100vh;max-height:100vh;overflow:hidden}
+/* ---------- Site shell (single-viewport, capped-width) ----------
+   The shell is capped at 1280px and centered. On any larger monitor
+   (4K, ultrawide) the content reads at the same width as a
+   comfortably-sized printed page, with empty gutter on either side.
+   On a small laptop the shell uses 100% of the viewport width and
+   scales the calendar/line chart down inside it. */
+.site-shell{
+  display:grid;
+  grid-template-rows:auto auto 1fr auto;
+  gap:14px;
+  width:100%;
+  max-width:var(--shell-max);
+  height:100vh;
+  min-height:0;
+  margin:0 auto;
+  padding:18px clamp(16px,3vw,32px) 20px;
+  /* When the viewport is tall enough, hard-cap the shell so it
+     cannot push a viewport scrollbar. When short, allow the shell
+     to grow past 100vh so users can keep reading. */
+}
 .site-header{display:grid;grid-template-columns:1fr auto;align-items:flex-end;gap:24px;padding-bottom:10px;border-bottom:2px solid var(--ink)}
 .site-header h1{font-family:var(--font-body);font-size:clamp(1.6rem,3.3vw,2.8rem);font-weight:900;letter-spacing:-.035em;line-height:.95;margin:0;max-width:18ch}
 .site-header .subtitle{font-family:var(--font-display);font-style:italic;font-weight:300;font-size:clamp(.95rem,1.4vw,1.15rem);line-height:1.35;color:#000000a6;max-width:55ch;margin:.35rem 0 0}
@@ -2264,7 +2291,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .range-status{grid-column:1/-1;margin:0;color:var(--muted);font-size:.72rem;line-height:1.4}
 
 /* ---------- Chart stage ---------- */
-.chart-stage{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.chart-stage{display:flex;flex-direction:column;min-height:0}
 .stage-topline{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin-bottom:4px}
 .selection-label{margin:0;color:var(--muted);font-size:.72rem;letter-spacing:.05em;text-transform:uppercase;font-family:var(--font-body)}
 .chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0 0 2px}
@@ -2274,25 +2301,33 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-shell.has-render{position:relative}
 
 /* SSR fallback for the calendar — must match the D3 viewbox metrics so
-   the .d3-enhanced clip is the only switch between SSR and D3 scenes. */
-.calendar-wrap,.line-chart-wrap{flex:1 1 auto;min-height:0;overflow:auto}
-.d3-scene{flex:1 1 auto;min-height:0;overflow:auto}
+   the .d3-enhanced clip is the only switch between SSR and D3 scenes.
+   No internal scrolling here: the wrap is allowed to overflow
+   visually but the parent shell clips to viewport. Content sizes
+   itself to fit inside the parent so a wide calendar shrinks on
+   narrow viewports instead of forcing a horizontal scrollbar. */
+.calendar-wrap,.line-chart-wrap{flex:1 1 auto;min-height:0}
+.d3-scene{flex:1 1 auto;min-height:0}
 .d3-scene[hidden]{display:none}
-.d3-calendar-svg,.d3-line-svg{display:block;width:100%;height:auto;min-width:680px}
+.d3-calendar-svg,.d3-line-svg{display:block;width:100%;height:auto;max-width:100%}
 
-/* SSR calendar layout */
-.calendar-grid{display:grid;grid-template-columns:42px 1fr;min-width:680px;padding:6px 0 0}
-.weekday-labels{display:grid;grid-template-rows:repeat(7,12px);gap:2px;padding-top:1px;color:var(--muted);font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-body)}
+/* SSR calendar layout.
+   cell/gap chosen so the full ~78-week view fits inside ~1200px
+   (cell=10, gap=1, plus 42px weekday labels + 16px padding ≈ 930px).
+   On narrower shells the cells stay square because the parent is
+   the constraint, not the children. */
+.calendar-grid{display:grid;grid-template-columns:42px 1fr;width:100%;padding:6px 0 0}
+.weekday-labels{display:grid;grid-template-rows:repeat(7,10px);gap:1px;padding-top:1px;color:var(--muted);font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-body)}
 .weekday-labels span{align-self:center}
-.calendar-canvas{display:flex;gap:2px;position:relative;padding-top:18px}
-.calendar-week{display:grid;grid-template-rows:repeat(7,12px);gap:2px;min-width:12px}
-.calendar-cell{width:12px;height:12px;padding:0;border:0;background:var(--hairline);position:relative;cursor:pointer}
+.calendar-canvas{display:grid;grid-template-columns:repeat(auto-fill,minmax(0,1fr));grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:1px;position:relative;padding-top:18px;width:100%}
+.calendar-week{display:grid;grid-template-rows:repeat(7,10px);gap:1px}
+.calendar-cell{width:100%;aspect-ratio:1;min-width:0;padding:0;border:0;background:var(--hairline);position:relative;cursor:pointer}
 .calendar-cell:hover,.calendar-cell:focus-visible{outline:2px solid var(--ink);outline-offset:1px;z-index:2}
 .calendar-cell.structural{background:transparent;cursor:default}
 .calendar-cell.missing{background:var(--paper);border:1px solid var(--missing);background-image:linear-gradient(45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%),linear-gradient(-45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%);background-size:100% 100%}
 .calendar-cell.neutral{background:var(--hairline)}
 .band-0{background:var(--band-0)}.band-1{background:var(--band-1)}.band-2{background:var(--band-2)}.band-3{background:var(--band-3)}.band-4{background:var(--band-4)}.band-5{background:var(--band-5)}.band-6{background:var(--band-6)}.band-7{background:var(--band-7)}.band-8{background:var(--band-8)}.band-9{background:var(--band-9)}
-.month-label{position:absolute;top:0;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;transform:translateX(calc(var(--week) * 14px));white-space:nowrap;font-family:var(--font-body)}
+.month-label{position:absolute;top:0;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;font-family:var(--font-body)}
 .legend{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin:10px 0 0;color:var(--muted);font-size:.66rem;letter-spacing:.02em;font-family:var(--font-body)}
 .legend span{display:inline-flex;gap:5px;align-items:center}
 .swatch{display:inline-block;width:11px;height:11px;background:var(--accent)}
@@ -2301,8 +2336,8 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .notice{flex-basis:100%;margin:0;color:var(--missing);font-weight:700}
 
 /* SSR line chart */
-.line-chart-wrap{width:100%;overflow:auto}
-.line-chart{display:block;width:100%;min-width:680px;height:auto}
+.line-chart-wrap{width:100%}
+.line-chart{display:block;width:100%;max-width:100%;height:auto}
 .grid line{stroke:var(--hairline);stroke-width:1}
 .grid text,.x-label{fill:var(--muted);font:11px var(--font-body)}
 .series{stroke-width:3;fill:none}
@@ -2320,8 +2355,6 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 /* SSR fallback tables (the accessible-data details block) */
 .accessible-data{margin-top:6px;font-size:.7rem;color:var(--muted)}
 .accessible-data summary{color:var(--accent);font-weight:800;cursor:pointer;letter-spacing:.04em}
-.table-scroll{overflow:auto;max-height:0;transition:max-height .3s ease}
-.accessible-data[open] .table-scroll{max-height:0}
 table{width:100%;border-collapse:collapse;font-size:.7rem}
 th,td{padding:4px 6px;border-bottom:1px solid var(--hairline);text-align:left;white-space:nowrap}
 th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase}
@@ -2369,9 +2402,13 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 .d3-month-label{font-size:10px}
 .weekday-label{fill:var(--muted);font:700 10px var(--font-body);letter-spacing:.05em;text-transform:uppercase}
 
-/* Responsive: allow scrolling on viewports below 800px tall */
-@media (max-height:820px){
-  .site-shell{height:auto;min-height:100vh;max-height:none;overflow:auto}
+/* Fallback: when the viewport is too short to fit everything, the
+   whole shell becomes scrollable. This is the ONLY scroll the page
+   ever uses, and it kicks in below the budget breakpoint (~820px tall
+   for the 1280-wide shell, or below 880px wide for narrower devices). */
+@media (max-height:820px),(max-width:880px){
+  html,body{height:auto;overflow:auto}
+  .site-shell{height:auto;min-height:100vh}
 }
 
 /* Reduced motion */
