@@ -354,8 +354,8 @@ mod tests {
         assert!(markup.contains("data-date=\"2024-03-06\""));
         assert!(markup.contains("calendar-cell missing"));
         assert!(markup.contains("Thursday, 29 February 2024: Missing data"));
-        assert!(markup.contains("Feb 2024"));
-        assert!(markup.contains("Mar 2024"));
+        assert!(markup.contains("Feb '24"));
+        assert!(markup.contains("Mar '24"));
         assert!(markup.contains("data-tooltip="));
         assert_eq!(summary.calendar_days, 8);
         assert_eq!(summary.observation_days, 2);
