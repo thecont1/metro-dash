@@ -31,7 +31,7 @@ pub static CHARTS: [ChartDefinition; 3] = [
         chart: Chart::Calendar,
         slug: "calendar",
         title: "Daily Total Ridership",
-        deck: "Each square is one calendar day. Deeper purple means a higher total than the rest of the days you've selected.",
+        deck: "Each square is one calendar day. Deeper the purple, higher the total.",
     },
     ChartDefinition {
         chart: Chart::CommuteCasual,

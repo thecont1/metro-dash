@@ -148,28 +148,6 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         .map(|record| record.date.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let mapping_note = format!(
-        "Mapping: date={} · total={} · commute={} + {} · casual={} + {} + {}",
-        dataset.field_mapping.date,
-        dataset
-            .field_mapping
-            .total
-            .as_deref()
-            .unwrap_or("calculated from fare media"),
-        dataset
-            .field_mapping
-            .smart_card
-            .as_deref()
-            .unwrap_or("missing"),
-        dataset.field_mapping.ncmc.as_deref().unwrap_or("missing"),
-        dataset.field_mapping.token.as_deref().unwrap_or("missing"),
-        dataset.field_mapping.qr.as_deref().unwrap_or("missing"),
-        dataset
-            .field_mapping
-            .group_ticket
-            .as_deref()
-            .unwrap_or("missing"),
-    );
     let style = Unescaped::new_unchecked(STYLE);
     let payload_script = Unescaped::new_unchecked(format!(
         r#"<script type="application/json" id="chart-data">{payload_json}</script>"#
@@ -216,63 +194,6 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                             "Source data on GitHub ↗"
                         </a>
                     </header>
-                    <div class="prepare-band">
-                        <div
-                            class="range-controls"
-                            data-available-dates=(available_dates)
-                        >
-                            <label class="range-input">
-                                <span class="range-input-label">"From"</span>
-                                <div class="date-picker" data-date-type="start">
-                                    (Unescaped::new_unchecked(start_date_selects))
-                                </div>
-                            </label>
-                            <div class="range-slider" aria-label="Date range slider">
-                                <div class="slider-track"></div>
-                                <input
-                                    id="range-start"
-                                    type="range"
-                                    min="0"
-                                    max=((dataset.records.len() - 1).to_string())
-                                    value=(record_index(&dataset, range.start)
-                                        .to_string())
-                                    aria-label="Start date"
-                                >
-                                <input
-                                    id="range-end"
-                                    type="range"
-                                    min="0"
-                                    max=((dataset.records.len() - 1).to_string())
-                                    value=(record_index(&dataset, range.end).to_string())
-                                    aria-label="End date"
-                                >
-                            </div>
-                            <label class="range-input">
-                                <span class="range-input-label">"To"</span>
-                                <div class="date-picker" data-date-type="end">
-                                    (Unescaped::new_unchecked(end_date_selects))
-                                </div>
-                            </label>
-                        </div>
-                        <div class="range-actions">
-                            <a
-                                class="text-button"
-                                href=(default_range_link(&dataset, chart))
-                                aria-disabled=(reset_disabled.to_string())
-                                tabindex=(if reset_disabled { "-1" } else { "0" })
-                            >
-                                "Reset to Jan–Jun 2026"
-                            </a>
-                            <a
-                                class="text-button"
-                                href=(all_data_link(&dataset, chart))
-                                aria-disabled=(all_disabled.to_string())
-                                tabindex=(if all_disabled { "-1" } else { "0" })
-                            >
-                                "Use all available data"
-                            </a>
-                        </div>
-                    </div>
                     <section class="chart-stage" aria-labelledby="chart-title">
                         <div class="stage-topline">
                             <p class="eyebrow">
@@ -308,6 +229,63 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                             </div>
                         </div>
                         <p class="chart-deck">(chart_deck)</p>
+                        <div class="prepare-band">
+                            <div
+                                class="range-controls"
+                                data-available-dates=(available_dates)
+                            >
+                                <label class="range-input">
+                                    <span class="range-input-label">"From"</span>
+                                    <div class="date-picker" data-date-type="start">
+                                        (Unescaped::new_unchecked(start_date_selects))
+                                    </div>
+                                </label>
+                                <div class="range-slider" aria-label="Date range slider">
+                                    <div class="slider-track"></div>
+                                    <input
+                                        id="range-start"
+                                        type="range"
+                                        min="0"
+                                        max=((dataset.records.len() - 1).to_string())
+                                        value=(record_index(&dataset, range.start)
+                                            .to_string())
+                                        aria-label="Start date"
+                                    >
+                                    <input
+                                        id="range-end"
+                                        type="range"
+                                        min="0"
+                                        max=((dataset.records.len() - 1).to_string())
+                                        value=(record_index(&dataset, range.end).to_string())
+                                        aria-label="End date"
+                                    >
+                                </div>
+                                <label class="range-input">
+                                    <span class="range-input-label">"To"</span>
+                                    <div class="date-picker" data-date-type="end">
+                                        (Unescaped::new_unchecked(end_date_selects))
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="range-actions">
+                                <a
+                                    class="text-button"
+                                    href=(default_range_link(&dataset, chart))
+                                    aria-disabled=(reset_disabled.to_string())
+                                    tabindex=(if reset_disabled { "-1" } else { "0" })
+                                >
+                                    "Reset to Jan–Jun 2026"
+                                </a>
+                                <a
+                                    class="text-button"
+                                    href=(all_data_link(&dataset, chart))
+                                    aria-disabled=(all_disabled.to_string())
+                                    tabindex=(if all_disabled { "-1" } else { "0" })
+                                >
+                                    "Use all available data"
+                                </a>
+                            </div>
+                        </div>
                         <div class="chart-shell">
                             (Unescaped::new_unchecked(chart_body))
                         </div>
@@ -323,30 +301,8 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                         <div>
                             <p class="eyebrow">"DATA NOTE"</p>
                             <p>(data_note)</p>
-                            <p>
-                                "Selected coverage: "
-                                (summary.observation_days)
-                                " observed days of "
-                                (summary.calendar_days)
-                                ". "
-                                (summary.missing_days)
-                                " calendar days are missing."
-                            </p>
+                            <p class="copyright">"© Mahesh Shantaram 2026"</p>
                         </div>
-                        <details>
-                            <summary>"Methodology & field mapping"</summary>
-                            <p>
-                                "Total ridership uses the supplied total when valid; otherwise it is the sum of valid fare-media fields. Commuter is Smart Card + NCMC. Casual is Token + QR + Group tickets. Blank source values remain missing, not zero. Sample standard deviation uses n − 1."
-                            </p>
-                            <p>(mapping_note)</p>
-                            <p>
-                                "Invalid dates: "
-                                (dataset.invalid_date_count)
-                                " · Duplicate dates resolved: "
-                                (dataset.duplicate_count)
-                                "."
-                            </p>
-                        </details>
                     </footer>
                 </main>
                 <div

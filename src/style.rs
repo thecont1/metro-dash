@@ -50,7 +50,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    scales the calendar/line chart down inside it. */
 .site-shell{
   display:grid;
-  grid-template-rows:auto auto 1fr auto;
+  grid-template-rows:auto 1fr auto;
   gap:14px;
   width:100%;
   max-width:var(--shell-max);
@@ -68,10 +68,12 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .source-link{align-self:flex-start;font-family:var(--font-header);font-weight:700;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);text-decoration:none;border:1px solid var(--ink);padding:.45rem .7rem;background:transparent}
 .source-link:hover{background:var(--ink);color:var(--paper)}
 
-/* ---------- Prepare band (single control row) ---------- */
+/* ---------- Prepare band (inside chart-stage) ---------- */
 /* The prepare band renders as a control row: From-input + slider
-   + To-input on one line, with centered action links underneath. */
-.prepare-band{display:flex;flex-direction:column;gap:10px;padding:14px 0 16px;border-bottom:1px solid var(--hairline)}
+   + To-input on one line, with centered action links underneath.
+   It lives inside .chart-stage so the title row position is
+   identical across all chart views. */
+.prepare-band{display:flex;flex-direction:column;gap:14px;padding:18px 0 20px;border-bottom:1px solid var(--hairline);margin-bottom:8px}
 .range-controls{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;width:100%}
 .range-input{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:6px;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
 .range-input-label{color:inherit}
@@ -180,8 +182,7 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 .site-footer{padding:8px 0 0;border-top:1px solid var(--hairline);color:var(--muted);font-size:.66rem;line-height:1.4;display:flex;justify-content:space-between;align-items:flex-end;gap:18px}
 .site-footer p{margin-bottom:3px}
 .site-footer .chart-method{color:var(--muted);font-size:.7rem;line-height:1.45;border-left:2px solid var(--accent);padding:2px 0 2px 9px;max-width:62ch}
-.site-footer details summary{color:var(--ink);font-weight:800;cursor:pointer;letter-spacing:.04em}
-.site-footer details p{max-width:62ch}
+.site-footer .copyright{font-family:var(--font-display);font-style:italic;font-size:.8rem;font-weight:400;color:var(--ink-muted);letter-spacing:.01em;margin-top:6px}
 
 /* Tooltip (D3 hover) */
 .chart-tooltip{position:fixed;z-index:20;max-width:280px;transform:translate(-50%,-100%);padding:7px 9px;background:var(--ink);color:var(--paper);font-size:.7rem;line-height:1.35;pointer-events:none;box-shadow:0 6px 20px rgba(10,10,10,.25);font-family:var(--font-body)}
@@ -224,7 +225,6 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 
 /* Data card */
 body.chart-data-card .prepare-band{display:none}
-body.chart-data-card .site-shell{grid-template-rows:auto 1fr auto}
 body.chart-data-card .chart-stage{justify-content:center}
 body.chart-data-card .chart-shell{justify-content:center}
 body.chart-data-card .d3-datacard-scene{position:absolute;pointer-events:none;width:0;height:0;overflow:visible}

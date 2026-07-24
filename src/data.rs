@@ -5,7 +5,7 @@ use csv::StringRecord;
 use reqwest::Client;
 
 pub const SOURCE_URL: &str = "https://raw.githubusercontent.com/thecont1/namma-metro-ridership-tracker/main/NammaMetro_Ridership_Dataset.csv";
-pub const SOURCE_PAGE_URL: &str = "https://github.com/thecont1/namma-metro-ridership-tracker/blob/main/NammaMetro_Ridership_Dataset.csv";
+pub const SOURCE_PAGE_URL: &str = "https://github.com/thecont1/namma-metro-ridership-tracker";
 pub const DEFAULT_START: &str = "2026-01-01";
 pub const DEFAULT_END: &str = "2026-06-30";
 pub const DEFAULT_CACHE_PATH: &str = ".cache/namma-metro-ridership.csv";
