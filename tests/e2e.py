@@ -49,19 +49,17 @@ with sync_playwright() as playwright:
     check("mean" in page.locator("#chart-tooltip").text_content(), "point tooltip lacks statistics")
 
     page.goto(f"{BASE}/?start=2026-03-01&end=2026-03-31&chart=calendar", wait_until="networkidle")
-    check(page.locator("#range-readable").text_content() == "1 Mar 2026 – 31 Mar 2026", "custom range is not restored")
+    start_picker = page.locator('[data-date-type="start"]')
+    end_picker = page.locator('[data-date-type="end"]')
+    check(start_picker.locator(".date-day").input_value() == "1" and start_picker.locator(".date-month").input_value() == "3" and start_picker.locator(".date-year").input_value() == "2026", "custom start range is not restored")
+    check(end_picker.locator(".date-day").input_value() == "31" and end_picker.locator(".date-month").input_value() == "3" and end_picker.locator(".date-year").input_value() == "2026", "custom end range is not restored")
     check(page.locator(".calendar-cell:not(.structural)").count() == 31, "custom calendar does not include every calendar day")
     check(page.locator(".d3-cell").count() == 31, "D3 calendar does not include every calendar day")
 
-    page.locator("#start-date").fill("2026-03-08")
-    page.locator("#start-date").dispatch_event("change")
+    start_picker.locator(".date-day").select_option("8")
+    start_picker.dispatch_event("change")
     page.wait_for_url("**start=2026-03-08**")
     check(parse_qs(urlparse(page.url).query).get("start") == ["2026-03-08"], "text date did not update URL")
-
-    page.locator("#start-date").fill("")
-    page.locator("#start-date").dispatch_event("change")
-    page.wait_for_url("**start=2024-10-26**")
-    check(parse_qs(urlparse(page.url).query).get("start") == ["2024-10-26"], "cleared start did not recover")
 
     check(not errors, f"browser console errors: {'; '.join(errors)}")
     desktop = Path("/tmp/metro-final-desktop.png")
