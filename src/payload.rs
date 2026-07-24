@@ -48,6 +48,7 @@ pub struct PayloadSummary {
     pub total_min_label: Option<String>,
     pub total_max_label: Option<String>,
     pub insufficient_percentiles: bool,
+    pub percentile_values: Vec<(u8, String)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,6 +73,7 @@ pub struct CalendarCellPayload {
     pub label: String,
     pub weekday: usize,
     pub week: usize,
+    pub col: usize,
     pub month_label: Option<String>,
     pub month_gap: usize,
     pub total: Option<f64>,
@@ -162,6 +164,11 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             total_min_label: summary.total_min.map(format_number_full),
             total_max_label: summary.total_max.map(format_number_full),
             insufficient_percentiles: summary.valid_total_count < 10,
+            percentile_values: summary
+                .percentiles
+                .iter()
+                .map(|(p, v)| (*p, format_number_full(*v)))
+                .collect(),
         },
         charts: PayloadCharts {
             data_card: data_card_payload(dataset, range),
@@ -198,6 +205,9 @@ fn calendar_payload_cells(
     let mut date = range.start;
     let mut month_gap_count = 0usize;
     let mut last_monday_month: Option<u32> = None;
+    let mut col = 0usize;
+    let mut prev_row: Option<usize> = None;
+    let mut last_month = date.month();
     while date <= range.end {
         let record = map.get(&date).copied();
         let value = record.and_then(|record| record.total_ridership);
@@ -205,10 +215,19 @@ fn calendar_payload_cells(
         let breakdown = record.map(fare_media_breakdown).unwrap_or_default();
         let label = calendar_cell_label(date, value, band, &breakdown);
         let week = ((date - first_monday).num_days() / 7) as usize;
+        let row = date.weekday().num_days_from_monday() as usize;
         let previous = date - chrono::Duration::days(1);
         let is_new_month = date.month() != previous.month();
         let month_label =
-            (date == range.start || is_new_month).then(|| date.format("%b %Y").to_string());
+            (date == range.start || is_new_month).then(|| date.format("%b '%y").to_string());
+        if date != range.start {
+            if date.month() != last_month {
+                col += 1;
+                last_month = date.month();
+            } else if prev_row == Some(6) {
+                col += 1;
+            }
+        }
         if date.weekday() == chrono::Weekday::Mon {
             match last_monday_month {
                 None => last_monday_month = Some(date.month()),
@@ -222,8 +241,9 @@ fn calendar_payload_cells(
         cells.push(CalendarCellPayload {
             date: date.to_string(),
             label,
-            weekday: date.weekday().num_days_from_monday() as usize,
+            weekday: row,
             week,
+            col,
             month_label,
             month_gap: month_gap_count,
             total: value,
@@ -233,6 +253,7 @@ fn calendar_payload_cells(
             missing: value.is_none(),
             breakdown,
         });
+        prev_row = Some(row);
         date += chrono::Duration::days(1);
     }
     cells

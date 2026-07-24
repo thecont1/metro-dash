@@ -171,104 +171,119 @@ pub fn band_index(label: &str) -> Option<usize> {
 }
 
 pub fn calendar_markup(dataset: &Dataset, range: DateRange, summary: &RangeSummary) -> String {
-    let mut svg = String::from(
-        r#"<div class="calendar-wrap"><div class="calendar-grid" role="img" aria-label="Daily ridership calendar heatmap"><div class="weekday-labels"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div><div class="calendar-canvas">"#,
-    );
-    let first_monday =
-        range.start - chrono::Duration::days(range.start.weekday().num_days_from_monday() as i64);
-    let last_sunday =
-        range.end + chrono::Duration::days(6 - range.end.weekday().num_days_from_monday() as i64);
-    let mut cursor = first_monday;
     let map: HashMap<NaiveDate, &RidershipRecord> = dataset
         .records
         .iter()
         .filter(|record| record.date >= range.start && record.date <= range.end)
         .map(|record| (record.date, record))
         .collect();
-    let mut week_index = 0;
-    let mut last_labelled_month: Option<(i32, u32)> = None;
-    while cursor <= last_sunday {
-        svg.push_str(&format!(
-            r#"<div class="calendar-week" style="--week:{week_index}" aria-label="Week beginning {}">"#,
-            cursor.format("%-d %b")
-        ));
-        for day_offset in 0..7 {
-            let date = cursor + chrono::Duration::days(day_offset as i64);
-            if date < range.start || date > range.end {
-                svg.push_str(
-                    r#"<span class="calendar-cell structural" aria-hidden="true"></span>"#,
-                );
-                continue;
+
+    let mut col = 0usize;
+    let mut prev_row: Option<usize> = None;
+    let mut last_month = range.start.month();
+    let mut date = range.start;
+    let mut positions: Vec<(NaiveDate, usize, usize)> = Vec::new();
+    while date <= range.end {
+        let row = date.weekday().num_days_from_monday() as usize;
+        if date != range.start {
+            if date.month() != last_month {
+                col += 1;
+                last_month = date.month();
+            } else if prev_row == Some(6) {
+                col += 1;
             }
-            let record = map.get(&date).copied();
-            let value = record.and_then(|record| record.total_ridership);
-            let band = value.and_then(|value| band_label(value, summary));
-            let breakdown = record.map(fare_media_breakdown).unwrap_or_default();
-            let label = match (value, band) {
-                (Some(value), Some(band)) => format!(
-                    "{}: {} total journeys, {}{}",
-                    date.format("%A, %-d %B %Y"),
-                    format_number_full(value),
-                    band,
-                    breakdown
-                ),
-                (Some(value), None) => format!(
-                    "{}: {} total journeys; insufficient data for percentile bands{}",
-                    date.format("%A, %-d %B %Y"),
-                    format_number_full(value),
-                    breakdown
-                ),
-                _ => format!("{}: Missing data", date.format("%A, %-d %B %Y")),
-            };
-            let safe = escape_attr(&label);
-            let classes = match (value, band) {
-                (None, _) => "calendar-cell missing",
-                (_, Some(band)) => match band {
-                    "< p2" => "calendar-cell band-0",
-                    "p2 – p5" => "calendar-cell band-1",
-                    "p5 – p10" => "calendar-cell band-2",
-                    "p10 – p25" => "calendar-cell band-3",
-                    "p25 – p50" => "calendar-cell band-4",
-                    "p50 – p75" => "calendar-cell band-5",
-                    "p75 – p90" => "calendar-cell band-6",
-                    "p90 – p95" => "calendar-cell band-7",
-                    "p95 – p98" => "calendar-cell band-8",
-                    "> p98" => "calendar-cell band-9",
-                    _ => "calendar-cell neutral",
-                },
-                (_, None) => "calendar-cell neutral",
-            };
-            let dow = date.weekday().num_days_from_monday();
-            svg.push_str(&format!(
-                r#"<button class="{classes}" title="{safe}" aria-label="{safe}" data-tooltip="{safe}" data-date="{date}" style="--day:{dow}"><span class="sr-only">{safe}</span></button>"#
-            ));
         }
-        svg.push_str("</div>");
-        let first_visible = (0..7)
-            .map(|offset| cursor + chrono::Duration::days(offset))
-            .find(|date| *date >= range.start && *date <= range.end);
-        let month_start = (0..7)
-            .map(|offset| cursor + chrono::Duration::days(offset))
-            .find(|date| {
-                *date >= range.start
-                    && *date <= range.end
-                    && Some((date.year(), date.month())) != last_labelled_month
-            })
-            .or(first_visible.filter(|_| last_labelled_month.is_none()));
-        if let Some(label_date) = month_start {
-            svg.push_str(&format!(
-                r#"<span class="month-label" style="--week:{week_index}">{}</span>"#,
-                label_date.format("%b %Y")
-            ));
-            last_labelled_month = Some((label_date.year(), label_date.month()));
-        }
-        cursor += chrono::Duration::days(7);
-        week_index += 1;
+        positions.push((date, col, row));
+        prev_row = Some(row);
+        date += chrono::Duration::days(1);
     }
-    svg.push_str("</div></div>");
-    svg.push_str(&legend_markup(summary));
-    svg.push_str(&calendar_table(dataset, range, summary));
-    svg
+    let max_col = positions.iter().map(|(_, c, _)| *c).max().unwrap_or(0);
+
+    let mut month_spans: Vec<(String, usize, usize)> = Vec::new();
+    let mut current_span: Option<(String, usize, usize)> = None;
+    for (d, c, _) in &positions {
+        let key = d.format("%b '%y").to_string();
+        let is_new = current_span
+            .as_ref()
+            .map(|(label, _, _)| label != &key)
+            .unwrap_or(true);
+        if is_new {
+            if let Some(span) = current_span.take() {
+                month_spans.push(span);
+            }
+            current_span = Some((key, *c, *c));
+        } else if let Some((_, _min, max)) = current_span.as_mut() {
+            *max = (*max).max(*c);
+        }
+    }
+    if let Some(span) = current_span {
+        month_spans.push(span);
+    }
+
+    let mut html = format!(
+        r#"<div class="calendar-wrap"><div class="calendar-grid" role="img" aria-label="Daily ridership calendar heatmap"><div class="weekday-labels"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div><div class="calendar-canvas" style="--max-col:{}">"#,
+        max_col + 1
+    );
+
+    for (label, min_c, max_c) in &month_spans {
+        let span = max_c - min_c + 1;
+        html.push_str(&format!(
+            r#"<span class="month-label" style="grid-column:{} / span {}">{label}</span>"#,
+            min_c + 1,
+            span
+        ));
+    }
+
+    for (date, c, row) in &positions {
+        let record = map.get(date).copied();
+        let value = record.and_then(|record| record.total_ridership);
+        let band = value.and_then(|value| band_label(value, summary));
+        let breakdown = record.map(fare_media_breakdown).unwrap_or_default();
+        let label = match (value, band) {
+            (Some(value), Some(band)) => format!(
+                "{}: {} total journeys, {}{}",
+                date.format("%A, %-d %B %Y"),
+                format_number_full(value),
+                band,
+                breakdown
+            ),
+            (Some(value), None) => format!(
+                "{}: {} total journeys; insufficient data for percentile bands{}",
+                date.format("%A, %-d %B %Y"),
+                format_number_full(value),
+                breakdown
+            ),
+            _ => format!("{}: Missing data", date.format("%A, %-d %B %Y")),
+        };
+        let safe = escape_attr(&label);
+        let classes = match (value, band) {
+            (None, _) => "calendar-cell missing",
+            (_, Some(band)) => match band {
+                "< p2" => "calendar-cell band-0",
+                "p2 – p5" => "calendar-cell band-1",
+                "p5 – p10" => "calendar-cell band-2",
+                "p10 – p25" => "calendar-cell band-3",
+                "p25 – p50" => "calendar-cell band-4",
+                "p50 – p75" => "calendar-cell band-5",
+                "p75 – p90" => "calendar-cell band-6",
+                "p90 – p95" => "calendar-cell band-7",
+                "p95 – p98" => "calendar-cell band-8",
+                "> p98" => "calendar-cell band-9",
+                _ => "calendar-cell neutral",
+            },
+            (_, None) => "calendar-cell neutral",
+        };
+        html.push_str(&format!(
+            r#"<button class="{classes}" title="{safe}" aria-label="{safe}" data-tooltip="{safe}" data-date="{date}" style="grid-column:{};grid-row:{}"><span class="sr-only">{safe}</span></button>"#,
+            c + 1,
+            row + 2
+        ));
+    }
+
+    html.push_str("</div></div></div>");
+    html.push_str(&legend_markup(summary));
+    html.push_str(&calendar_table(dataset, range, summary));
+    html
 }
 
 fn legend_markup(summary: &RangeSummary) -> String {
@@ -294,8 +309,45 @@ fn legend_markup(summary: &RangeSummary) -> String {
         _ => "Each cell's shade maps to its percentile of daily ridership within your selection."
             .to_string(),
     };
+    let pct_map: std::collections::HashMap<u8, f64> = summary
+        .percentiles
+        .iter()
+        .map(|(p, v)| (*p, *v))
+        .collect();
+    let pct_label = |p: u8| -> String {
+        pct_map
+            .get(&p)
+            .map(|v| compact_number(*v))
+            .unwrap_or_default()
+    };
+    let bands = [
+        ("< p2", "band-0", format!("< p2  (< {})", pct_label(2))),
+        ("p2 – p5", "band-1", format!("p2 – p5  ({} – {})", pct_label(2), pct_label(5))),
+        ("p5 – p10", "band-2", format!("p5 – p10  ({} – {})", pct_label(5), pct_label(10))),
+        ("p10 – p25", "band-3", format!("p10 – p25  ({} – {})", pct_label(10), pct_label(25))),
+        ("p25 – p50", "band-4", format!("p25 – p50  ({} – {})", pct_label(25), pct_label(50))),
+        ("p50 – p75", "band-5", format!("p50 – p75  ({} – {})", pct_label(50), pct_label(75))),
+        ("p75 – p90", "band-6", format!("p75 – p90  ({} – {})", pct_label(75), pct_label(90))),
+        ("p90 – p95", "band-7", format!("p90 – p95  ({} – {})", pct_label(90), pct_label(95))),
+        ("p95 – p98", "band-8", format!("p95 – p98  ({} – {})", pct_label(95), pct_label(98))),
+        ("> p98", "band-9", format!("> p98  (> {})", pct_label(98))),
+    ];
+    let swatches_html: String = bands
+        .iter()
+        .map(|(_, cls, title)| {
+            format!(r#"<span class="legend-swatch {cls}" title="{title}"></span>"#)
+        })
+        .collect();
+    let percentile_labels = ["p2", "p5", "p10", "p25", "p50", "p75", "p90", "p95", "p98"];
+    let ticks_html: String = percentile_labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            format!(r#"<span class="legend-tick" style="left:{}%">{label}</span>"#, (i + 1) * 10)
+        })
+        .collect();
     format!(
-        r#"<div class="legend" aria-label="Color scale"><span class="legend-gradient" aria-hidden="true"></span><p class="legend-caption">{observed}</p><p class="legend-meta">{buckets_note}</p><p class="legend-meta legend-missing-note">Crossed cells = days BMRCL didn't publish a total for.</p></div>"#
+        r#"<div class="legend" aria-label="Color scale"><div class="legend-gradient-wrap"><div class="legend-swatches" aria-hidden="true">{swatches_html}</div><div class="legend-ticks" aria-hidden="true">{ticks_html}</div></div><p class="legend-caption">{observed}</p><p class="legend-meta">{buckets_note}</p><p class="legend-meta legend-missing-note">Crossed cells = days BMRCL didn't publish a total for.</p></div>"#
     )
 }
 
