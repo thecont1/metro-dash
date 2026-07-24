@@ -167,10 +167,10 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       const cells = payload.charts.calendar.cells;
       const maxWeek = D3.max(cells, d => d.week) || 0;
       const maxGap = D3.max(cells, d => d.monthGap) || 0;
-      const cell = 16, gap = 2, left = 44, top = 28;
+      const cell = 24, gap = 2, left = 44, top = 28;
       const totalCols = maxWeek + maxGap + 1;
       const width = left + totalCols * (cell + gap) + 24;
-      const height = 190;
+      const height = 220;
 
       // Ensure scroll-wrap container around the SVG so months scroll
       // horizontally while the 7-row height stays fixed.
@@ -287,7 +287,11 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       .transition().duration(canAnimate && animate ? 320 : 0)
       .attr('y1', d => y(Math.min(maxValue, d.mean + d.standardDeviation)) - y(d.mean))
       .attr('y2', d => y(Math.max(0, d.mean - d.standardDeviation)) - y(d.mean));
-    pointGroups.selectAll('circle').data(d => d.mean == null ? [] : [d]).join('circle')
+    pointGroups.selectAll('circle.d3-point-hit').data(d => d.mean == null ? [] : [d]).join('circle')
+      .attr('class', 'd3-point-hit')
+      .attr('r', 12)
+      .attr('fill', 'transparent');
+    pointGroups.selectAll('circle.d3-point').data(d => d.mean == null ? [] : [d]).join('circle')
       .attr('class', d => `d3-point point ${d.seriesKey}`)
       .attr('r', 6);
     pointGroups.selectAll('text').data(d => d.mean == null ? [] : [d]).join('text')

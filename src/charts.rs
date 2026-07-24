@@ -417,7 +417,7 @@ pub fn line_chart_markup(summary: &RangeSummary) -> String {
             let safe = escape_attr(&label_text);
             let compact = compact_number(mean);
             svg.push_str(&format!(
-                r#"<circle class="point {class}" cx="{xx:.1}" cy="{yy:.1}" r="6" tabindex="0" role="img" aria-label="{safe}" data-tooltip="{safe}"></circle><text class="point-label {class}" x="{xx:.1}" y="{:.1}" text-anchor="middle">{compact}</text>"#,
+                r#"<circle class="point-hit" cx="{xx:.1}" cy="{yy:.1}" r="12" fill="transparent" tabindex="0" role="img" aria-label="{safe}" data-tooltip="{safe}"></circle><circle class="point {class}" cx="{xx:.1}" cy="{yy:.1}" r="6" aria-hidden="true"></circle><text class="point-label {class}" x="{xx:.1}" y="{:.1}" text-anchor="middle" aria-hidden="true">{compact}</text>"#,
                 yy - 14.0
             ));
         }

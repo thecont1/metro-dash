@@ -65,7 +65,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .site-header{display:grid;grid-template-columns:1fr auto;align-items:flex-end;gap:24px;padding-bottom:10px;border-bottom:2px solid var(--ink)}
 .site-header h1{font-family:var(--font-body);font-size:clamp(1.6rem,3.3vw,2.8rem);font-weight:900;letter-spacing:-.035em;line-height:.95;margin:0;max-width:18ch}
 .site-header .subtitle{font-family:var(--font-display);font-style:italic;font-weight:300;font-size:clamp(.95rem,1.4vw,1.15rem);line-height:1.35;color:#000000a6;max-width:55ch;margin:.35rem 0 0}
-.source-link{align-self:flex-start;font-family:var(--font-header);font-weight:700;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);text-decoration:none;border:1px solid var(--ink);padding:.45rem .7rem;background:transparent}
+.source-link{align-self:flex-start;font-family:var(--font-header);font-weight:700;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);text-decoration:none;border:1px solid var(--ink);padding:.6rem .8rem;min-height:24px;display:inline-flex;align-items:center;background:transparent}
 .source-link:hover{background:var(--ink);color:var(--paper)}
 
 /* ---------- Prepare band (inside chart-stage) ---------- */
@@ -78,7 +78,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .range-input{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:6px;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
 .range-input-label{color:inherit}
 .date-picker{display:flex;align-items:stretch;border:1px solid var(--hairline);background:var(--surface);min-height:32px;overflow:hidden}
-.date-select{border:0;background:transparent;color:var(--ink);font:600 .85rem var(--font-mono);padding:4px 8px;cursor:pointer;-webkit-appearance:none;appearance:none;text-align:center}
+.date-select{border:0;background:transparent;color:var(--ink);font:600 .85rem var(--font-mono);padding:6px 8px;min-height:24px;cursor:pointer;-webkit-appearance:none;appearance:none;text-align:center}
 .date-select + .date-select{border-left:1px solid var(--hairline)}
 .date-select:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .date-select:hover{background:var(--surface)}
@@ -88,10 +88,10 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .range-slider{position:relative;height:30px}
 .slider-track{position:absolute;top:14px;left:0;right:0;height:3px;background:var(--hairline)}
 .range-slider input{position:absolute;top:0;left:0;width:100%;height:30px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
-.range-slider input::-webkit-slider-thumb{appearance:none;pointer-events:auto;width:18px;height:18px;border:2px solid var(--paper);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:grab;margin-top:6px}
-.range-slider input::-moz-range-thumb{pointer-events:auto;width:14px;height:14px;border:2px solid var(--paper);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:grab}
+.range-slider input::-webkit-slider-thumb{appearance:none;pointer-events:auto;width:24px;height:24px;border:2px solid var(--paper);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:grab;margin-top:3px}
+.range-slider input::-moz-range-thumb{pointer-events:auto;width:20px;height:20px;border:2px solid var(--paper);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:grab}
 .range-actions{display:flex;gap:14px;align-items:center;justify-content:center;padding-top:4px}
-.text-button{font-family:var(--font-body);font-size:.74rem;font-weight:700;letter-spacing:.02em;color:var(--accent);text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px}
+.text-button{font-family:var(--font-body);font-size:.74rem;font-weight:700;letter-spacing:.02em;color:var(--accent);text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px;display:inline-flex;align-items:center;min-height:24px;padding:4px 2px}
 .text-button[aria-disabled="true"]{color:var(--muted-2);text-decoration-color:var(--muted-2);cursor:not-allowed;pointer-events:none}
 
 /* ---------- Chart stage ---------- */
@@ -105,7 +105,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .chart-shell.has-render{position:relative}
 .chart-pager{display:flex;gap:16px}
-.chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:6px 0;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
+.chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:8px 4px;min-height:24px;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
 .chart-pager .arrow-button[aria-disabled="false"]:hover{color:var(--accent)}
 .chart-pager .arrow-button[aria-disabled="true"]{color:var(--muted-2);cursor:not-allowed;pointer-events:none}
 .chart-pager .arrow-glyph{font-size:1.2rem;font-weight:300;line-height:.5}
@@ -116,7 +116,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    months are available by scrolling. */
 .calendar-scroll-wrap{overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:none;-ms-overflow-style:none;-webkit-mask-image:linear-gradient(to right,transparent 24px,#000 48px,#000 calc(100% - 48px),transparent calc(100% - 24px));mask-image:linear-gradient(to right,transparent 24px,#000 48px,#000 calc(100% - 48px),transparent calc(100% - 24px))}
 .calendar-scroll-wrap::-webkit-scrollbar{display:none}
-.calendar-scroll-wrap .d3-calendar-svg{display:block;height:190px;width:auto;max-width:none}
+.calendar-scroll-wrap .d3-calendar-svg{display:block;height:220px;width:auto;max-width:none}
 
 /* SSR fallback for the calendar — must match the D3 viewbox metrics so
    the .d3-enhanced clip is the only switch between SSR and D3 scenes.
@@ -137,11 +137,11 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    On narrower shells the cells stay square because the parent is
    the constraint, not the children. */
 .calendar-grid{display:grid;grid-template-columns:42px 1fr;width:100%;padding:6px 0 0}
-.weekday-labels{display:grid;grid-template-rows:repeat(7,10px);gap:1px;padding-top:1px;color:var(--muted);font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-body)}
+.weekday-labels{display:grid;grid-template-rows:repeat(7,24px);gap:1px;padding-top:1px;color:var(--muted);font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-body)}
 .weekday-labels span{align-self:center}
 .calendar-canvas{display:grid;grid-template-columns:repeat(auto-fill,minmax(0,1fr));grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:1px;position:relative;padding-top:18px;width:100%}
-.calendar-week{display:grid;grid-template-rows:repeat(7,10px);gap:1px}
-.calendar-cell{width:100%;aspect-ratio:1;min-width:0;padding:0;border:0;background:var(--hairline);position:relative;cursor:pointer}
+.calendar-week{display:grid;grid-template-rows:repeat(7,24px);gap:1px}
+.calendar-cell{width:100%;aspect-ratio:1;min-width:0;min-height:24px;padding:0;border:0;background:var(--hairline);position:relative;cursor:pointer}
 .calendar-cell:hover,.calendar-cell:focus-visible{outline:2px solid var(--ink);outline-offset:1px;z-index:2}
 .calendar-cell.structural{background:transparent;cursor:default}
 .calendar-cell.missing{background:var(--paper);border:1px solid var(--missing);background-image:linear-gradient(45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%),linear-gradient(-45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%);background-size:100% 100%}
@@ -163,6 +163,9 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .series.commute,.point.commute,.whisker.commute{stroke:var(--accent);fill:var(--accent)}
 .series.casual,.point.casual,.whisker.casual{stroke:var(--gold);fill:var(--gold)}
 .point{stroke:var(--paper);stroke-width:3;cursor:pointer}
+.point-hit{cursor:pointer}
+.point-hit:focus{outline:none}
+.point-hit:focus + .point{stroke:var(--ink);stroke-width:4}
 .point:focus{outline:none;stroke:var(--ink);stroke-width:4}
 .whisker{stroke-width:2;opacity:.45}
 .point-label{font:700 11px var(--font-body)}
@@ -173,7 +176,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 
 /* SSR fallback tables (the accessible-data details block) */
 .accessible-data{margin-top:6px;font-size:.7rem;color:var(--muted)}
-.accessible-data summary{color:var(--accent);font-weight:800;cursor:pointer;letter-spacing:.04em}
+.accessible-data summary{color:var(--accent);font-weight:800;cursor:pointer;letter-spacing:.04em;min-height:24px;display:flex;align-items:center;padding:2px 0}
 table{width:100%;border-collapse:collapse;font-size:.7rem}
 th,td{padding:4px 6px;border-bottom:1px solid var(--hairline);text-align:left;white-space:nowrap}
 th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase}
