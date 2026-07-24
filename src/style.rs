@@ -102,7 +102,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0}
 .chart-deck{font-family:var(--font-display);font-style:italic;font-size:.95rem;color:var(--ink-muted);max-width:62ch;margin:0 0 8px}
 .chart-shell{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
-.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .chart-shell.has-render{position:relative}
 .chart-pager{display:flex;gap:16px}
 .chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:8px 4px;min-height:24px;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
@@ -111,10 +111,8 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-pager .arrow-glyph{font-size:1.2rem;font-weight:300;line-height:.5}
 .chart-pager .arrow-glyph-label{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;line-height:1}
 
-/* Calendar scroll container — fixed 7-row height, hides scrollbar,
-   uses a mask to fade content at the left/right edges suggesting more
-   months are available by scrolling. */
-.calendar-scroll-wrap{overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:none;-ms-overflow-style:none;-webkit-mask-image:linear-gradient(to right,transparent 24px,#000 48px,#000 calc(100% - 48px),transparent calc(100% - 24px));mask-image:linear-gradient(to right,transparent 24px,#000 48px,#000 calc(100% - 48px),transparent calc(100% - 24px))}
+/* Calendar scroll container — fixed 7-row height, hides scrollbar. */
+.calendar-scroll-wrap{overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:none;-ms-overflow-style:none}
 .calendar-scroll-wrap::-webkit-scrollbar{display:none}
 .calendar-scroll-wrap .d3-calendar-svg{display:block;height:220px;width:auto;max-width:none}
 
@@ -123,36 +121,42 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    Content sizes itself to fit inside the parent so a wide calendar
    shrinks on narrow viewports instead of forcing a horizontal scrollbar. */
 .calendar-wrap,.line-chart-wrap{flex:1 1 auto;min-height:0}
-.d3-scene{flex:1 1 auto;min-height:0;min-width:0}
+.d3-scene{flex:0 1 auto;min-height:0;min-width:0}
 .d3-scene[hidden]{display:none}
 .d3-calendar-svg,.d3-line-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
 
-/* D3 weekday / month labels — thin monospace per spec */
-.weekday-label{font:300 10px/1 SFMono,Monaco,Menlo,monospace;letter-spacing:.04em;fill:var(--muted)}
-.d3-month-label{font:800 10px/1 SFMono,Monaco,Menlo,monospace;letter-spacing:.01em;fill:var(--ink);text-anchor:start}
+/* D3 calendar layout — frozen weekday column + scrollable SVG */
+.calendar-layout{display:flex;gap:4px;align-items:stretch;width:100%}
+.weekday-fixed{display:flex;flex-direction:column;justify-content:flex-start;gap:2px;padding-top:28px;flex:0 0 auto;width:32px}
+.weekday-fixed span{font:300 10px/24px SFMono,Monaco,Menlo,monospace;letter-spacing:.04em;color:var(--muted);height:24px;display:flex;align-items:center}
+.calendar-scroll-wrap{flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden}
+.d3-month-label{font:600 12px/1 var(--font-display);letter-spacing:.01em;fill:var(--ink);text-anchor:middle}
 
-/* SSR calendar layout.
-   cell/gap chosen so the full ~78-week view fits inside ~1200px
-   (cell=10, gap=1, plus 42px weekday labels + 16px padding ≈ 930px).
-   On narrower shells the cells stay square because the parent is
-   the constraint, not the children. */
+/* SSR calendar layout — staircase grid.
+   Each cell placed by grid-column (col) and grid-row (weekday+2).
+   Row 1 reserved for month labels. */
 .calendar-grid{display:grid;grid-template-columns:42px 1fr;width:100%;padding:6px 0 0}
-.weekday-labels{display:grid;grid-template-rows:repeat(7,24px);gap:1px;padding-top:1px;color:var(--muted);font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-body)}
+.weekday-labels{display:grid;grid-template-rows:repeat(7,24px);gap:1px;padding-top:20px;color:var(--muted);font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-body)}
 .weekday-labels span{align-self:center}
-.calendar-canvas{display:grid;grid-template-columns:repeat(auto-fill,minmax(0,1fr));grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:1px;position:relative;padding-top:18px;width:100%}
-.calendar-week{display:grid;grid-template-rows:repeat(7,24px);gap:1px}
+.calendar-canvas{display:grid;grid-template-columns:repeat(var(--max-col,80),1fr);grid-template-rows:auto repeat(7,24px);gap:1px;position:relative;width:100%}
 .calendar-cell{width:100%;aspect-ratio:1;min-width:0;min-height:24px;padding:0;border:0;background:var(--hairline);position:relative;cursor:pointer}
 .calendar-cell:hover,.calendar-cell:focus-visible{outline:2px solid var(--ink);outline-offset:1px;z-index:2}
 .calendar-cell.structural{background:transparent;cursor:default}
-.calendar-cell.missing{background:var(--paper);border:1px solid var(--missing);background-image:linear-gradient(45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%),linear-gradient(-45deg,transparent 44%,var(--missing) 45%,var(--missing) 55%,transparent 56%);background-size:100% 100%}
+.calendar-cell.missing{background:var(--paper);border:1px solid var(--hairline);background-image:linear-gradient(45deg,transparent 47%,var(--missing) 47.5%,var(--missing) 52.5%,transparent 53%),linear-gradient(-45deg,transparent 47%,var(--missing) 47.5%,var(--missing) 52.5%,transparent 53%);background-size:100% 100%}
 .calendar-cell.neutral{background:var(--hairline)}
 .band-0{background:var(--band-0)}.band-1{background:var(--band-1)}.band-2{background:var(--band-2)}.band-3{background:var(--band-3)}.band-4{background:var(--band-4)}.band-5{background:var(--band-5)}.band-6{background:var(--band-6)}.band-7{background:var(--band-7)}.band-8{background:var(--band-8)}.band-9{background:var(--band-9)}
-.month-label{position:absolute;top:0;left:0;color:var(--muted);font-size:.62rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;font-family:var(--font-body);pointer-events:none}
-.legend{display:flex;flex-direction:column;gap:6px;margin:10px 0 0;color:var(--muted);font-size:.7rem;line-height:1.45;letter-spacing:.02em;font-family:var(--font-body)}
+.month-label{color:var(--ink);font-size:.7rem;font-weight:600;letter-spacing:.01em;white-space:nowrap;font-family:var(--font-display);pointer-events:none;grid-row:1;text-align:center;align-self:end;padding-bottom:4px}
+.legend{display:flex;flex-direction:column;gap:6px;margin:2px 0 0;color:var(--muted);font-size:.7rem;line-height:1.45;letter-spacing:.02em;font-family:var(--font-body)}
 .legend-caption{margin:0;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:.005em}
 .legend-meta{margin:0;color:var(--muted)}
 .legend-missing-note{color:var(--missing)}
-.legend-gradient{display:block;width:100%;height:14px;border:1px solid var(--hairline);border-radius:2px;background:linear-gradient(to right,var(--band-0),var(--band-3),var(--band-6),var(--band-9))}
+.legend-gradient-wrap{position:relative;width:100%}
+.legend-swatches{display:flex;width:100%;height:14px;border:1px solid var(--hairline);border-radius:2px;overflow:hidden}
+.legend-swatch{flex:1 1 0;min-width:0;height:100%;cursor:pointer;transition:outline .15s,transform .15s}
+.legend-swatch.active{outline:2px solid var(--ink);outline-offset:-1px;transform:scaleY(1.15)}
+.legend-swatches .band-0{background:var(--band-0)}.legend-swatches .band-1{background:var(--band-1)}.legend-swatches .band-2{background:var(--band-2)}.legend-swatches .band-3{background:var(--band-3)}.legend-swatches .band-4{background:var(--band-4)}.legend-swatches .band-5{background:var(--band-5)}.legend-swatches .band-6{background:var(--band-6)}.legend-swatches .band-7{background:var(--band-7)}.legend-swatches .band-8{background:var(--band-8)}.legend-swatches .band-9{background:var(--band-9)}
+.legend-ticks{position:relative;height:16px;margin-top:2px}
+.legend-tick{position:absolute;transform:translateX(-50%);font:400 9px/1 SFMono,Monaco,Menlo,monospace;color:var(--muted);white-space:nowrap}
 
 /* SSR line chart */
 .line-chart-wrap{width:100%}
@@ -175,8 +179,9 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .insight{margin:6px 0 8px;color:var(--ink);font:600 1rem var(--font-display);letter-spacing:-.01em;max-width:60ch}
 
 /* SSR fallback tables (the accessible-data details block) */
-.accessible-data{margin-top:6px;font-size:.7rem;color:var(--muted)}
+.accessible-data{margin-top:6px;font-size:.7rem;color:var(--muted);position:relative;z-index:1;background:var(--paper)}
 .accessible-data summary{color:var(--accent);font-weight:800;cursor:pointer;letter-spacing:.04em;min-height:24px;display:flex;align-items:center;padding:2px 0}
+.table-scroll{max-height:400px;overflow-y:auto;border:1px solid var(--hairline);border-radius:2px}
 table{width:100%;border-collapse:collapse;font-size:.7rem}
 th,td{padding:4px 6px;border-bottom:1px solid var(--hairline);text-align:left;white-space:nowrap}
 th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase}
@@ -188,14 +193,26 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 .site-footer .copyright{font-family:var(--font-display);font-style:italic;font-size:.8rem;font-weight:400;color:var(--ink-muted);letter-spacing:.01em;margin-top:6px}
 
 /* Tooltip (D3 hover) */
-.chart-tooltip{position:fixed;z-index:20;max-width:280px;transform:translate(-50%,-100%);padding:7px 9px;background:var(--ink);color:var(--paper);font-size:.7rem;line-height:1.35;pointer-events:none;box-shadow:0 6px 20px rgba(10,10,10,.25);font-family:var(--font-body)}
+.chart-tooltip{position:fixed;z-index:30;width:360px;min-height:120px;transform:translate(-50%,-100%);padding:0;background:var(--paper);color:var(--ink);font-size:.78rem;line-height:1.4;pointer-events:none;box-shadow:0 6px 20px rgba(10,10,10,.2);font-family:var(--font-body);border-radius:6px;border:1px solid var(--hairline);overflow:hidden}
+.chart-tooltip .tt-head{display:flex;align-items:center;gap:8px;padding:10px 14px 6px}
+.chart-tooltip .tt-color{display:inline-block;width:12px;height:12px;border-radius:2px;flex-shrink:0;border:1px solid rgba(0,0,0,.1);vertical-align:middle;margin-right:6px}
+.chart-tooltip .tt-date{font-family:var(--font-display);font-weight:600;font-size:.88rem;color:var(--ink)}
+.chart-tooltip .tt-rides{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;padding:0 14px 6px;font-size:.82rem;display:flex;align-items:center}
+.chart-tooltip .tt-band{color:var(--muted);font-size:.68rem;padding:0 14px 4px}
+.chart-tooltip .tt-table{width:100%;border-collapse:collapse;font-size:.7rem;margin-top:2px}
+.chart-tooltip .tt-table th{padding:5px 14px 3px;color:var(--muted);font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;text-align:left;font-weight:700;border-bottom:1px solid var(--hairline)}
+.chart-tooltip .tt-table td{padding:4px 14px;color:var(--ink);font-variant-numeric:tabular-nums}
+.chart-tooltip .tt-table td:last-child{text-align:right;font-weight:600}
+.chart-tooltip .tt-missing-inline{color:var(--muted);font-style:italic;font-weight:400}
+.chart-tooltip .tt-spacer{height:8px}
+.chart-tooltip .tt-missing{color:var(--muted);font-style:italic;padding:10px 14px}
 .chart-tooltip[hidden]{display:none}
 
 /* D3 progressive-enhancement layers (calendar + line scenes) */
 .d3-cell rect{stroke:transparent}
 .d3-cell:focus{outline:none}
 .d3-cell:focus rect,.d3-cell:hover rect{stroke:var(--ink);stroke-width:2;stroke-opacity:.5}
-.missing-cross{stroke:var(--missing);stroke-width:1.4}
+.missing-cross{stroke:var(--missing);stroke-width:0.8}
 .d3-grid-line{stroke:var(--hairline);stroke-width:1}
 .d3-series-path{stroke-width:3}
 .d3-series-path.commute,.d3-point.commute,.d3-whisker.commute{stroke:var(--accent);fill:var(--accent)}
@@ -207,8 +224,7 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 .d3-point-label.commute,.d3-series-label.commute{fill:var(--accent)}
 .d3-point-label.casual,.d3-series-label.casual{fill:var(--gold)}
 .d3-series-label{font:700 11px var(--font-body)}
-.d3-month-label,.d3-y-label,.d3-x-label{fill:var(--muted);font:700 11px var(--font-body)}
-.d3-month-label{font-size:10px}
+.d3-y-label,.d3-x-label{fill:var(--muted);font:700 11px var(--font-body)}
 .weekday-label{fill:var(--muted);font:700 10px var(--font-body);letter-spacing:.05em;text-transform:uppercase}
 
 /* Fallback: when the viewport is too short to fit everything, the
