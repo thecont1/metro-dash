@@ -18,7 +18,7 @@ mod style;
 
 use charts::Chart;
 use data::{choose_range, fetch_dataset, load_cached_dataset};
-use payload::{chart_payload_for, ChartPayload};
+use payload::{ChartPayload, chart_payload_for};
 use render::{failure_view, parse_query, render_view};
 
 #[derive(Debug, Clone)]
@@ -95,11 +95,12 @@ async fn home(cx: &Cx) -> Result {
     let state: &AppState = topcoat::context::app_context(cx);
     let query = parse_query(parts(cx).uri.query().unwrap_or_default());
     let mut snapshot = state.dataset.read().await.clone();
-    if snapshot.is_none() && query.retry {
-        if let Ok(dataset) = fetch_dataset(&state.client).await {
-            *state.dataset.write().await = Some(dataset.clone());
-            snapshot = Some(dataset);
-        }
+    if snapshot.is_none()
+        && query.retry
+        && let Ok(dataset) = fetch_dataset(&state.client).await
+    {
+        *state.dataset.write().await = Some(dataset.clone());
+        snapshot = Some(dataset);
     }
     let chart = Chart::from_query(query.chart.as_deref());
     match snapshot {
@@ -125,12 +126,12 @@ async fn chart_payload(cx: &Cx) -> Result<Json<ChartPayload>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDate, Weekday};
     use charts::{band_label, calendar_markup};
+    use chrono::{NaiveDate, Weekday};
     use client::CLIENT_SCRIPT;
     use data::{
-        choose_range, clean_number, parse_dataset, quantile, summarise, Dataset, DateRange,
-        RangeSummary,
+        Dataset, DateRange, RangeSummary, choose_range, clean_number, parse_dataset, quantile,
+        summarise,
     };
     use payload::chart_payload_for;
     use render::{all_data_link, default_range_link};

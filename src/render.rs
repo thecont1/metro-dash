@@ -1,12 +1,15 @@
 use chrono::{Datelike, FixedOffset, NaiveDate};
 use serde::Deserialize;
-use topcoat::{context::Cx, view::{Unescaped, view}, Result};
+use topcoat::{
+    Result,
+    context::Cx,
+    view::{Unescaped, view},
+};
 
-use crate::charts::{calendar_markup, data_card_markup, line_chart_markup, Chart, CHARTS};
+use crate::charts::{CHARTS, Chart, calendar_markup, data_card_markup, line_chart_markup};
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
 use crate::data::{
-    choose_range, default_range, record_index, Dataset, DEFAULT_END, DEFAULT_START,
-    SOURCE_PAGE_URL,
+    DEFAULT_END, DEFAULT_START, Dataset, SOURCE_PAGE_URL, choose_range, default_range, record_index,
 };
 use crate::payload::chart_payload_for;
 use crate::style::STYLE;
@@ -59,7 +62,12 @@ const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-pub fn date_select_markup(id_prefix: &str, date: NaiveDate, min: NaiveDate, max: NaiveDate) -> String {
+pub fn date_select_markup(
+    id_prefix: &str,
+    date: NaiveDate,
+    min: NaiveDate,
+    max: NaiveDate,
+) -> String {
     let day = date.day();
     let month = date.month() as usize;
     let year = date.year();
@@ -98,12 +106,27 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         .expect("chart payload should serialize")
         .replace("</", "<\\/");
     let chart_idx = chart.index();
-    let prev_chart = if chart_idx == 0 { chart } else { CHARTS[chart_idx - 1].chart };
-    let next_chart = if chart_idx + 1 < CHARTS.len() { CHARTS[chart_idx + 1].chart } else { chart };
-    let previous_href = format!("?start={}&end={}&chart={}", range.start, range.end, prev_chart.slug());
+    let prev_chart = if chart_idx == 0 {
+        chart
+    } else {
+        CHARTS[chart_idx - 1].chart
+    };
+    let next_chart = if chart_idx + 1 < CHARTS.len() {
+        CHARTS[chart_idx + 1].chart
+    } else {
+        chart
+    };
+    let previous_href = format!(
+        "?start={}&end={}&chart={}",
+        range.start,
+        range.end,
+        prev_chart.slug()
+    );
     let next_href = format!(
         "?start={}&end={}&chart={}",
-        range.start, range.end, next_chart.slug()
+        range.start,
+        range.end,
+        next_chart.slug()
     );
     let definition = chart.definition();
     let chart_title = definition.title;
@@ -113,8 +136,12 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         Chart::Calendar => calendar_markup(&dataset, range, &summary),
         Chart::CommuteCasual => line_chart_markup(&summary),
     };
-    let start_date_selects =
-        date_select_markup("start-date", range.start, dataset.min_date, dataset.max_date);
+    let start_date_selects = date_select_markup(
+        "start-date",
+        range.start,
+        dataset.min_date,
+        dataset.max_date,
+    );
     let end_date_selects =
         date_select_markup("end-date", range.end, dataset.min_date, dataset.max_date);
     let previous_definition = prev_chart.definition();
@@ -123,7 +150,11 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
     let next_disabled = chart_idx + 1 >= CHARTS.len();
     let ist = FixedOffset::east_opt(5 * 3600 + 30 * 60).unwrap();
     let refreshed_ist = chrono::DateTime::parse_from_rfc3339(&dataset.refreshed_at)
-        .map(|dt| dt.with_timezone(&ist).format("%-d %b %Y, %-I:%M %p IST").to_string())
+        .map(|dt| {
+            dt.with_timezone(&ist)
+                .format("%-d %b %Y, %-I:%M %p IST")
+                .to_string()
+        })
         .unwrap_or_else(|_| dataset.refreshed_at.clone());
     let data_note = format!(
         "{} – {} · {} rows · latest {} · retrieved {}",
@@ -133,11 +164,7 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         dataset.max_date.format("%-d %b %Y"),
         refreshed_ist
     );
-    let reset_range = choose_range(
-        &dataset,
-        Some(DEFAULT_START),
-        Some(DEFAULT_END),
-    );
+    let reset_range = choose_range(&dataset, Some(DEFAULT_START), Some(DEFAULT_END));
     let reset_disabled = range == reset_range;
     let all_disabled = range.start == dataset.min_date && range.end == dataset.max_date;
     let chart_index_str = (chart.index() + 1).to_string();

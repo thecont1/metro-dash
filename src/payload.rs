@@ -1,12 +1,10 @@
 use serde::Serialize;
 
 use crate::charts::{
-    band_index, band_label, fare_media_breakdown, format_number_full, format_range,
-    insight_line, weekday_name,
+    band_index, band_label, fare_media_breakdown, format_number_full, format_range, insight_line,
+    weekday_name,
 };
-use crate::data::{
-    record_index, summarise, Dataset, DateRange, RangeSummary, RidershipRecord,
-};
+use crate::data::{Dataset, DateRange, RangeSummary, RidershipRecord, record_index, summarise};
 use chrono::{Datelike, NaiveDate, Weekday};
 
 #[derive(Debug, Clone, Serialize)]
@@ -209,8 +207,8 @@ fn calendar_payload_cells(
         let week = ((date - first_monday).num_days() / 7) as usize;
         let previous = date - chrono::Duration::days(1);
         let is_new_month = date.month() != previous.month();
-        let month_label = (date == range.start || is_new_month)
-            .then(|| date.format("%b %Y").to_string());
+        let month_label =
+            (date == range.start || is_new_month).then(|| date.format("%b %Y").to_string());
         if date.weekday() == chrono::Weekday::Mon {
             match last_monday_month {
                 None => last_monday_month = Some(date.month()),
@@ -384,26 +382,46 @@ fn data_card_payload(dataset: &Dataset, range: DateRange) -> DataCardPayload {
             let total = record.total_ridership;
             let total_for_pct = total.unwrap_or(0.0);
             let fare_media = vec![
-                fare_media_item("smart-card", "Smart Cards", record.smart_card, total_for_pct, &[
-                    ("Stored Value", record.stored_value),
-                    ("One Day Pass", record.one_day_pass),
-                    ("Three Day Pass", record.three_day_pass),
-                    ("Five Day Pass", record.five_day_pass),
-                ]),
+                fare_media_item(
+                    "smart-card",
+                    "Smart Cards",
+                    record.smart_card,
+                    total_for_pct,
+                    &[
+                        ("Stored Value", record.stored_value),
+                        ("One Day Pass", record.one_day_pass),
+                        ("Three Day Pass", record.three_day_pass),
+                        ("Five Day Pass", record.five_day_pass),
+                    ],
+                ),
                 fare_media_item("token", "Tokens", record.token, total_for_pct, &[]),
-                fare_media_item("qr", "QR Tickets", record.qr, total_for_pct, &[
-                    ("Namma Metro", record.qr_namma),
-                    ("WhatsApp", record.qr_whatsapp),
-                    ("Paytm", record.qr_paytm),
-                ]),
+                fare_media_item(
+                    "qr",
+                    "QR Tickets",
+                    record.qr,
+                    total_for_pct,
+                    &[
+                        ("Namma Metro", record.qr_namma),
+                        ("WhatsApp", record.qr_whatsapp),
+                        ("Paytm", record.qr_paytm),
+                    ],
+                ),
                 fare_media_item("ncmc", "NCMC", record.ncmc, total_for_pct, &[]),
-                fare_media_item("group", "Group Ticket", record.group_ticket, total_for_pct, &[]),
+                fare_media_item(
+                    "group",
+                    "Group Ticket",
+                    record.group_ticket,
+                    total_for_pct,
+                    &[],
+                ),
             ];
             DataCardPayload {
                 date: record.date.to_string(),
                 date_display: record.date.format("%A, %-d %B %Y").to_string(),
                 total,
-                total_label: total.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+                total_label: total
+                    .map(format_number_full)
+                    .unwrap_or_else(|| "—".to_string()),
                 fare_media,
                 has_missing: total.is_none(),
             }
@@ -445,7 +463,9 @@ fn fare_media_item(
         key,
         label,
         value,
-        value_label: value.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+        value_label: value
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".to_string()),
         percentage,
         breakdown,
     }

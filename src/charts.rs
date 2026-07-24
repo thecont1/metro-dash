@@ -285,9 +285,14 @@ fn legend_markup(summary: &RangeSummary) -> String {
         1..=9 => format!(
             "Buckets are approximate ({num} day{plural} in range; tint carries limited signal).",
             num = summary.valid_total_count,
-            plural = if summary.valid_total_count == 1 { "" } else { "s" }
+            plural = if summary.valid_total_count == 1 {
+                ""
+            } else {
+                "s"
+            }
         ),
-        _ => "Each cell's shade maps to its percentile of daily ridership within your selection.".to_string(),
+        _ => "Each cell's shade maps to its percentile of daily ridership within your selection."
+            .to_string(),
     };
     format!(
         r#"<div class="legend" aria-label="Color scale"><span class="legend-gradient" aria-hidden="true"></span><p class="legend-caption">{observed}</p><p class="legend-meta">{buckets_note}</p><p class="legend-meta legend-missing-note">Crossed cells = days BMRCL didn't publish a total for.</p></div>"#
@@ -554,10 +559,7 @@ pub fn data_card_markup(dataset: &Dataset, range: DateRange) -> String {
             .to_string();
     };
 
-    let date_display = record
-        .date
-        .format("%A, %-d %B %Y")
-        .to_string();
+    let date_display = record.date.format("%A, %-d %B %Y").to_string();
     let date_short = record.date.format("%-d %b %Y").to_string();
 
     let total = record.total_ridership;
