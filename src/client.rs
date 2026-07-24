@@ -78,7 +78,11 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     if (abs >= 1_000) return `${Math.round(value / 1_000)}k`;
     return `${Math.round(value)}`;
   };
-  const colourFor = (cell) => cell.missing ? 'var(--surface)' : cell.bandIndex == null ? 'var(--grid)' : `var(--band-${cell.bandIndex})`;
+  const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const _bandColors = Array.from({length: 10}, (_, i) => cssVar(`--band-${i}`));
+  const _paperColor = cssVar('--paper');
+  const _gridColor = cssVar('--hairline');
+  const colourFor = (cell) => cell.missing ? _paperColor : cell.bandIndex == null ? _gridColor : _bandColors[cell.bandIndex];
   const setDisabled = (el, disabled) => {
     if (!el) return;
     el.setAttribute('aria-disabled', String(disabled));
@@ -102,7 +106,24 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     tooltip.style.left = `${Math.min(window.innerWidth - 16, Math.max(16, bounds.left + bounds.width / 2))}px`;
     tooltip.style.top = `${Math.max(12, bounds.top - 10)}px`;
   };
-  const hideTooltip = () => { if (tooltip) tooltip.hidden = true; };
+  let _tooltipTimer = null;
+  const showTooltipHTML = (html, target) => {
+    if (!tooltip || !html) return;
+    const bounds = target.getBoundingClientRect();
+    if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
+    tooltip.innerHTML = html;
+    tooltip.hidden = false;
+    tooltip.style.opacity = '1';
+    tooltip.style.transition = 'none';
+    tooltip.style.left = `${Math.min(window.innerWidth - 16, Math.max(16, bounds.left + bounds.width / 2))}px`;
+    tooltip.style.top = `${Math.max(12, bounds.top - 10)}px`;
+  };
+  const hideTooltip = () => {
+    if (!tooltip) return;
+    tooltip.style.transition = 'opacity .4s ease-in';
+    tooltip.style.opacity = '0';
+    _tooltipTimer = setTimeout(() => { tooltip.hidden = true; }, 400);
+  };
   const bindTooltip = (selection) => {
     selection
       .attr('tabindex', 0)
@@ -161,51 +182,82 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     return D3.select(scene);
   };
 
+  let _calSvg = null;
+  let _swatchBound = false;
+
   const renderCalendar = (animate = true) => {
       if (!D3) return;
       const scene = ensureScene('d3-calendar-scene');
       const cells = payload.charts.calendar.cells;
-      const maxWeek = D3.max(cells, d => d.week) || 0;
-      const maxGap = D3.max(cells, d => d.monthGap) || 0;
-      const cell = 24, gap = 2, left = 44, top = 28;
-      const totalCols = maxWeek + maxGap + 1;
-      const width = left + totalCols * (cell + gap) + 24;
+      const maxCol = D3.max(cells, d => d.col) || 0;
+      const cell = 24, gap = 2, top = 28, monthGap = 6;
+      // Count how many month boundaries exist to compute total width
+      const monthBoundaries = new Set();
+      let prevMonth = null;
+      cells.forEach(d => {
+        const m = d.date.substring(0, 7);
+        if (prevMonth !== null && m !== prevMonth) monthBoundaries.add(d.col);
+        prevMonth = m;
+      });
+      const totalCols = maxCol + 1;
+      const width = totalCols * (cell + gap) + monthBoundaries.size * monthGap + 24;
       const height = 220;
 
-      // Ensure scroll-wrap container around the SVG so months scroll
-      // horizontally while the 7-row height stays fixed.
-      let wrap = scene.select('.calendar-scroll-wrap');
-      if (wrap.empty()) {
-        wrap = scene.append('div').attr('class', 'calendar-scroll-wrap');
+      // Layout: frozen weekday labels on the left + scrollable calendar
+      let layout = scene.select('.calendar-layout');
+      if (layout.empty()) {
+        layout = scene.append('div').attr('class', 'calendar-layout');
+        const wd = layout.append('div').attr('class', 'weekday-fixed');
+        ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((day) => {
+          wd.append('span').text(day);
+        });
+        layout.append('div').attr('class', 'calendar-scroll-wrap');
       }
+      const wrap = layout.select('.calendar-scroll-wrap');
+
       const svg = wrap.selectAll('svg').data([null]).join('svg')
         .attr('class', 'd3-calendar-svg')
         .attr('viewBox', `0 0 ${width} ${height}`)
         .attr('role', 'img')
         .attr('aria-label', 'Daily ridership calendar heatmap, enhanced with D3');
+      _calSvg = svg;
 
-      // Thin monospace weekday labels on the y-axis
-      svg.selectAll('.weekday-label').data(['Mon','Tue','Wed','Thu','Fri','Sat','Sun']).join('text')
-        .attr('class', 'weekday-label')
-        .attr('x', 0)
-        .attr('y', (_, i) => top + i * (cell + gap) + 12)
-        .text(d => d);
+      // Compute month centers for centered labels
+      const monthGroups = {};
+      cells.forEach(d => {
+        const m = d.date.substring(0, 7);
+        if (!monthGroups[m]) monthGroups[m] = { min: Infinity, max: -Infinity, label: null };
+        monthGroups[m].min = Math.min(monthGroups[m].min, d.col);
+        monthGroups[m].max = Math.max(monthGroups[m].max, d.col);
+        if (d.monthLabel) monthGroups[m].label = d.monthLabel;
+      });
+      // Month boundary columns — extra gap inserted at each month change
+      const monthBoundaryCols = [...monthBoundaries].sort((a, b) => a - b);
 
-      // Month labels positioned above the first week of each month,
-      // accounting for month-gap columns so they align with their cells.
-      const xPos = d => left + (d.week + d.monthGap) * (cell + gap);
-      svg.selectAll('.d3-month-label').data(cells.filter(d => d.monthLabel), d => d.date).join(
-        enter => enter.append('text').attr('class', 'd3-month-label').attr('opacity', 0).text(d => d.monthLabel),
-        update => update.text(d => d.monthLabel),
+      const monthCenters = Object.values(monthGroups).filter(g => g.label).map(g => {
+        const xMin = (() => { let x = g.min * (cell + gap); monthBoundaryCols.forEach(c => { if (g.min >= c) x += monthGap; }); return x; })();
+        const xMax = (() => { let x = g.max * (cell + gap); monthBoundaryCols.forEach(c => { if (g.max >= c) x += monthGap; }); return x; })();
+        return { label: g.label, centerX: (xMin + xMax + cell) / 2, key: g.label };
+      });
+
+      // Month labels — centered above month block, serif font
+      svg.selectAll('.d3-month-label').data(monthCenters, d => d.key).join(
+        enter => enter.append('text').attr('class', 'd3-month-label').attr('opacity', 0).text(d => d.label),
+        update => update.text(d => d.label),
         exit => exit.remove()
       )
-        .attr('x', xPos)
-        .attr('y', 13)
+        .attr('x', d => d.centerX)
+        .attr('y', 18)
+        .attr('text-anchor', 'middle')
         .transition().duration(canAnimate && animate ? 220 : 0)
         .attr('opacity', 1);
 
-      // Calendar cells — x transform includes monthGap so month blocks
-      // are visually separated by a column of whitespace.
+      // Calendar cells positioned by staircase col, with extra gap at month boundaries
+      const xPos = d => {
+        let x = d.col * (cell + gap);
+        monthBoundaryCols.forEach(c => { if (d.col >= c) x += monthGap; });
+        return x;
+      };
       const joined = svg.selectAll('.d3-cell').data(cells, d => d.date).join(
         enter => {
           const g = enter.append('g').attr('class', d => `d3-cell ${d.missing ? 'missing' : `band-${d.bandIndex ?? 'neutral'}`}`).attr('opacity', 0);
@@ -227,10 +279,65 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
         .attr('transform', d => `translate(${xPos(d)},${top + d.weekday * (cell + gap)})`);
       joined.select('rect').transition().duration(canAnimate && animate ? 260 : 0).attr('fill', colourFor);
       joined.selectAll('.missing-cross').attr('display', d => d.missing ? null : 'none');
-      bindTooltip(joined);
 
-      // Legend is rendered server-side by `legend_markup` inside the SSR
-      // calendar-wrap. The D3 pass does not duplicate it.
+      // Structured HTML tooltip for calendar cells
+      const fmtDate = (dateStr) => {
+        const d = new Date(dateStr + 'T00:00');
+        return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      };
+      const fmtNum = (v) => v != null ? v.toLocaleString('en-IN') : '—';
+      const parseBreakdown = (str) => {
+        if (!str) return [];
+        const cleaned = str.replace(/^\s*—\s*/, '');
+        return cleaned.split(', ').map(part => {
+          const m = part.trim().match(/^(.+?)\s+([\d,]+)$/);
+          return m ? { label: m[1], value: m[2] } : null;
+        }).filter(Boolean);
+      };
+      joined
+        .attr('tabindex', 0)
+        .attr('role', 'img')
+        .attr('aria-label', d => d.label)
+        .on('mouseenter focus click', function (event, d) {
+          let html;
+          if (d.missing) {
+            html = `<div class="tt-head"><span class="tt-date">${fmtDate(d.date)}</span></div><div class="tt-rides tt-missing-inline">No data published</div><div class="tt-spacer"></div>`;
+          } else {
+            const bandColor = d.bandIndex != null ? _bandColors[d.bandIndex] : 'transparent';
+            const rows = parseBreakdown(d.breakdown);
+            const tableHtml = rows.length
+              ? `<table class="tt-table"><thead><tr><th>Payment method</th><th>Rides</th></tr></thead><tbody>${rows.map(r => `<tr><td>${r.label}</td><td>${r.value}</td></tr>`).join('')}</tbody></table>`
+              : '<div class="tt-spacer"></div>';
+            html = `<div class="tt-head"><span class="tt-date">${fmtDate(d.date)}</span></div><div class="tt-rides"><span class="tt-color" style="background:${bandColor}"></span>${fmtNum(d.total)} rides</div>${d.bandLabel ? `<div class="tt-band">${d.bandLabel}</div>` : ''}${tableHtml}`;
+          }
+          showTooltipHTML(html, this);
+        })
+        .on('mouseleave blur', hideTooltip);
+
+      // Legend swatch click — bind once, use shared _calSvg reference
+      if (!_swatchBound) {
+        _swatchBound = true;
+        const swatches = document.querySelectorAll('.legend-swatch');
+        swatches.forEach(sw => {
+          sw.style.cursor = 'pointer';
+          sw.addEventListener('click', () => {
+            const bandIdx = parseInt(sw.className.match(/band-(\d+)/)?.[1] ?? -1);
+            const isActive = sw.classList.toggle('active');
+            swatches.forEach(s => { if (s !== sw) s.classList.remove('active'); });
+            if (!_calSvg) return;
+            const allCells = _calSvg.selectAll('.d3-cell');
+            if (!isActive) {
+              allCells.style('opacity', 1);
+            } else {
+              allCells.style('opacity', d => {
+                if (d.missing) return 0.08;
+                return d.bandIndex === bandIdx ? 1 : 0.08;
+              });
+            }
+          });
+        });
+      }
+
       choreograph(scene.node());
     };
 
