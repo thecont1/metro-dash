@@ -367,15 +367,14 @@ fn normalise_record(
                     .and_then(|name| field(headers, row, name)),
             )
         });
-    let qr =
-        sum_complete([qr_namma, qr_whatsapp, qr_paytm]).or_else(|| {
-            clean_number(
-                mapping
-                    .qr
-                    .as_deref()
-                    .and_then(|name| field(headers, row, name)),
-            )
-        });
+    let qr = sum_complete([qr_namma, qr_whatsapp, qr_paytm]).or_else(|| {
+        clean_number(
+            mapping
+                .qr
+                .as_deref()
+                .and_then(|name| field(headers, row, name)),
+        )
+    });
     let ncmc = clean_number(
         mapping
             .ncmc

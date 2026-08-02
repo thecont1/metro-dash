@@ -377,7 +377,13 @@ mod tests {
         assert_eq!(payload.range.end, "2026-01-20");
         assert_eq!(payload.summary.calendar_days, 20);
         assert_eq!(payload.charts.calendar.cells.len(), 20);
-        assert!(payload.charts.calendar.legend_html.contains(r#"class="legend""#));
+        assert!(
+            payload
+                .charts
+                .calendar
+                .legend_html
+                .contains(r#"class="legend""#)
+        );
         assert!(
             payload
                 .charts

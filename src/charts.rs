@@ -306,11 +306,8 @@ pub fn legend_markup(summary: &RangeSummary) -> String {
         _ => "Each cell's shade maps to its percentile of daily ridership within your selection."
             .to_string(),
     };
-    let pct_map: std::collections::HashMap<u8, f64> = summary
-        .percentiles
-        .iter()
-        .map(|(p, v)| (*p, *v))
-        .collect();
+    let pct_map: std::collections::HashMap<u8, f64> =
+        summary.percentiles.iter().map(|(p, v)| (*p, *v)).collect();
     let pct_label = |p: u8| -> String {
         pct_map
             .get(&p)
@@ -319,14 +316,46 @@ pub fn legend_markup(summary: &RangeSummary) -> String {
     };
     let bands = [
         ("< p2", "band-0", format!("< p2  (< {})", pct_label(2))),
-        ("p2 – p5", "band-1", format!("p2 – p5  ({} – {})", pct_label(2), pct_label(5))),
-        ("p5 – p10", "band-2", format!("p5 – p10  ({} – {})", pct_label(5), pct_label(10))),
-        ("p10 – p25", "band-3", format!("p10 – p25  ({} – {})", pct_label(10), pct_label(25))),
-        ("p25 – p50", "band-4", format!("p25 – p50  ({} – {})", pct_label(25), pct_label(50))),
-        ("p50 – p75", "band-5", format!("p50 – p75  ({} – {})", pct_label(50), pct_label(75))),
-        ("p75 – p90", "band-6", format!("p75 – p90  ({} – {})", pct_label(75), pct_label(90))),
-        ("p90 – p95", "band-7", format!("p90 – p95  ({} – {})", pct_label(90), pct_label(95))),
-        ("p95 – p98", "band-8", format!("p95 – p98  ({} – {})", pct_label(95), pct_label(98))),
+        (
+            "p2 – p5",
+            "band-1",
+            format!("p2 – p5  ({} – {})", pct_label(2), pct_label(5)),
+        ),
+        (
+            "p5 – p10",
+            "band-2",
+            format!("p5 – p10  ({} – {})", pct_label(5), pct_label(10)),
+        ),
+        (
+            "p10 – p25",
+            "band-3",
+            format!("p10 – p25  ({} – {})", pct_label(10), pct_label(25)),
+        ),
+        (
+            "p25 – p50",
+            "band-4",
+            format!("p25 – p50  ({} – {})", pct_label(25), pct_label(50)),
+        ),
+        (
+            "p50 – p75",
+            "band-5",
+            format!("p50 – p75  ({} – {})", pct_label(50), pct_label(75)),
+        ),
+        (
+            "p75 – p90",
+            "band-6",
+            format!("p75 – p90  ({} – {})", pct_label(75), pct_label(90)),
+        ),
+        (
+            "p90 – p95",
+            "band-7",
+            format!("p90 – p95  ({} – {})", pct_label(90), pct_label(95)),
+        ),
+        (
+            "p95 – p98",
+            "band-8",
+            format!("p95 – p98  ({} – {})", pct_label(95), pct_label(98)),
+        ),
         ("> p98", "band-9", format!("> p98  (> {})", pct_label(98))),
     ];
     let swatches_html: String = bands
@@ -340,7 +369,10 @@ pub fn legend_markup(summary: &RangeSummary) -> String {
         .iter()
         .enumerate()
         .map(|(i, label)| {
-            format!(r#"<span class="legend-tick" style="left:{}%">{label}</span>"#, (i + 1) * 10)
+            format!(
+                r#"<span class="legend-tick" style="left:{}%">{label}</span>"#,
+                (i + 1) * 10
+            )
         })
         .collect();
     format!(

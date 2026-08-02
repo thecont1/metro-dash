@@ -41,10 +41,26 @@ pub fn parse_query(query: &str) -> QueryState {
 
 pub fn range_action_links(dataset: &Dataset, chart: Chart, current: &DateRange) -> String {
     let actions = [
-        ("last-3-months", "Last 3 months", last_n_months_range(dataset, 3)),
-        ("last-6-months", "Last 6 months", last_n_months_range(dataset, 6)),
-        ("last-9-months", "Last 9 months", last_n_months_range(dataset, 9)),
-        ("last-one-year", "Last one year", last_n_months_range(dataset, 12)),
+        (
+            "last-3-months",
+            "Last 3 months",
+            last_n_months_range(dataset, 3),
+        ),
+        (
+            "last-6-months",
+            "Last 6 months",
+            last_n_months_range(dataset, 6),
+        ),
+        (
+            "last-9-months",
+            "Last 9 months",
+            last_n_months_range(dataset, 9),
+        ),
+        (
+            "last-one-year",
+            "Last one year",
+            last_n_months_range(dataset, 12),
+        ),
         (
             "use-all-data",
             "Use all available data",
