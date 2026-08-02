@@ -46,8 +46,14 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const navigateToChart = (chart) => {
     if (chart === activeChart || !chartRegistry[chart]) return;
     activeChart = chart;
-    saveState({start: payload.range.start, end: payload.range.end, chart: activeChart});
     syncChartChrome();
+    if (chart === 'calendar') {
+      const quickFilter = document.querySelector('.range-actions [data-preset="last-6-months"]');
+      if (quickFilter) {
+        return fetchRange(quickFilter.dataset.start, quickFilter.dataset.end, {animate: true});
+      }
+    }
+    saveState({start: payload.range.start, end: payload.range.end, chart: activeChart});
     renderActiveChart(true);
   };
 

@@ -41,11 +41,12 @@ pub fn parse_query(query: &str) -> QueryState {
 
 pub fn range_action_links(dataset: &Dataset, chart: Chart, current: &DateRange) -> String {
     let actions = [
-        ("Last 3 months", last_n_months_range(dataset, 3)),
-        ("Last 6 months", last_n_months_range(dataset, 6)),
-        ("Last 9 months", last_n_months_range(dataset, 9)),
-        ("Last one year", last_n_months_range(dataset, 12)),
+        ("last-3-months", "Last 3 months", last_n_months_range(dataset, 3)),
+        ("last-6-months", "Last 6 months", last_n_months_range(dataset, 6)),
+        ("last-9-months", "Last 9 months", last_n_months_range(dataset, 9)),
+        ("last-one-year", "Last one year", last_n_months_range(dataset, 12)),
         (
+            "use-all-data",
             "Use all available data",
             DateRange {
                 start: dataset.min_date,
@@ -55,10 +56,11 @@ pub fn range_action_links(dataset: &Dataset, chart: Chart, current: &DateRange) 
     ];
     actions
         .iter()
-        .map(|(label, range)| {
+        .map(|(preset, label, range)| {
             let disabled = current.start == range.start && current.end == range.end;
             format!(
-                r#"<a class="text-button" href="/" data-start="{start}" data-end="{end}" data-chart="{chart}" aria-disabled="{disabled}" tabindex="{tabindex}">{label}</a>"#,
+                r#"<a class="text-button" href="/" data-preset="{preset}" data-start="{start}" data-end="{end}" data-chart="{chart}" aria-disabled="{disabled}" tabindex="{tabindex}">{label}</a>"#,
+                preset = preset,
                 start = range.start,
                 end = range.end,
                 chart = chart.slug(),
