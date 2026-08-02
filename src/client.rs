@@ -16,6 +16,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const chartShell = document.querySelector('.chart-shell');
   const chartTitle = document.querySelector('#chart-title');
   const chartDeck = document.querySelector('.chart-deck');
+  const chartMethod = document.querySelector('.chart-method');
   const chartEyebrow = document.querySelector('.stage-topline .eyebrow');
   const priorButton = document.querySelector('.arrow-button.prev');
   const nextButton = document.querySelector('.arrow-button.next');
@@ -162,13 +163,27 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     if (definition) {
       if (chartTitle) chartTitle.textContent = definition.title;
       if (chartDeck) chartDeck.textContent = definition.deck;
+      if (chartMethod) chartMethod.textContent = definition.method;
     }
     const eyebrowIndex = chartEyebrow?.querySelector('.chart-index');
     if (eyebrowIndex) {
       eyebrowIndex.textContent = String(chartOrder.indexOf(activeChart) + 1);
     }
-    setDisabled(priorButton, activeChart === 'data-card');
-    setDisabled(nextButton, activeChart === 'commute-casual');
+    const idx = chartOrder.indexOf(activeChart);
+    const prevSlug = idx > 0 ? chartOrder[idx - 1] : null;
+    const nextSlug = idx < chartOrder.length - 1 ? chartOrder[idx + 1] : null;
+    const prevDef = prevSlug ? payload.definitions?.find(def => def.slug === prevSlug) : null;
+    const nextDef = nextSlug ? payload.definitions?.find(def => def.slug === nextSlug) : null;
+    if (priorButton) {
+      priorButton.setAttribute('data-chart', prevSlug || activeChart);
+      priorButton.setAttribute('aria-label', prevDef ? `Previous chart: ${prevDef.title}` : 'Previous chart');
+      setDisabled(priorButton, prevSlug === null);
+    }
+    if (nextButton) {
+      nextButton.setAttribute('data-chart', nextSlug || activeChart);
+      nextButton.setAttribute('aria-label', nextDef ? `Next chart: ${nextDef.title}` : 'Next chart');
+      setDisabled(nextButton, nextSlug === null);
+    }
     document.body.className = document.body.className
       .replace(/chart-\S+/g, '')
       .trim() + ' chart-' + activeChart;
@@ -251,6 +266,9 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   const renderCalendar = (animate = true) => {
       if (!D3) return;
+      if (!chartShell.querySelector('.legend') && payload.charts.calendar?.legendHtml) {
+        chartShell.insertAdjacentHTML('beforeend', payload.charts.calendar.legendHtml);
+      }
       const scene = ensureScene('d3-calendar-scene');
       const cells = payload.charts.calendar.cells;
       const maxCol = D3.max(cells, d => d.col) || 0;

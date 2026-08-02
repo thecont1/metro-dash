@@ -303,11 +303,7 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                             (Unescaped::new_unchecked(chart_body))
                         </div>
                         <div class="chart-method">
-                            (match chart {
-                                Chart::DataCard => "Shows the fare media breakdown for the end date of your selected range. The proportion bar and payment boxes mirror the official BMRCL daily ridership page.",
-                                Chart::Calendar => "Each cell shows one day. The hue tells you how that day's total compares with the other days you've selected — lighter means lower, darker means higher. Crossed cells are days BMRCL didn't publish.",
-                                Chart::CommuteCasual => "Lines show the weekday pattern for two rider groups: people who pay by Smart Card or NCMC (closed-loop), and everyone else (QR + token + group). Averages skip days missing any component of the relevant group.",
-                            })
+                            (definition.method)
                         </div>
                     </section>
                     <footer class="site-footer">

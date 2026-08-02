@@ -18,6 +18,7 @@ pub struct ChartDefinition {
     pub slug: &'static str,
     pub title: &'static str,
     pub deck: &'static str,
+    pub method: &'static str,
 }
 
 pub static CHARTS: [ChartDefinition; 3] = [
@@ -26,18 +27,21 @@ pub static CHARTS: [ChartDefinition; 3] = [
         slug: "data-card",
         title: "Today's Ridership",
         deck: "A single day's ridership at a glance, broken down by fare media.",
+        method: "Shows the fare media breakdown for the end date of your selected range. The proportion bar and payment boxes mirror the official BMRCL daily ridership page.",
     },
     ChartDefinition {
         chart: Chart::Calendar,
         slug: "calendar",
         title: "Daily Total Ridership",
         deck: "Each square is one calendar day. Deeper the purple, higher the total.",
+        method: "Each cell shows one day. The hue tells you how that day's total compares with the other days you've selected — lighter means lower, darker means higher. Crossed cells are days BMRCL didn't publish.",
     },
     ChartDefinition {
         chart: Chart::CommuteCasual,
         slug: "commute-casual",
         title: "Commute vs Casual by Weekday",
         deck: "Average journeys by day of week, using the dates you've selected.",
+        method: "Lines show the weekday pattern for two rider groups: people who pay by Smart Card or NCMC (closed-loop), and everyone else (QR + token + group). Averages skip days missing any component of the relevant group.",
     },
 ];
 
@@ -279,7 +283,7 @@ pub fn calendar_markup(dataset: &Dataset, range: DateRange, summary: &RangeSumma
     html
 }
 
-fn legend_markup(summary: &RangeSummary) -> String {
+pub fn legend_markup(summary: &RangeSummary) -> String {
     let observed = match (summary.total_min, summary.total_max) {
         (Some(min), Some(max)) if (max - min).abs() > f64::EPSILON => format!(
             "Observed: {} – {}",

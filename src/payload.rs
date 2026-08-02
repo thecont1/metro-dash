@@ -23,6 +23,7 @@ pub struct ChartDefinitionPayload {
     pub slug: &'static str,
     pub title: &'static str,
     pub deck: &'static str,
+    pub method: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,7 +73,7 @@ pub struct PayloadCharts {
 #[serde(rename_all = "camelCase")]
 pub struct CalendarPayload {
     pub cells: Vec<CalendarCellPayload>,
-    pub legend: Vec<LegendItemPayload>,
+    pub legend_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,13 +92,6 @@ pub struct CalendarCellPayload {
     pub band_index: Option<usize>,
     pub missing: bool,
     pub breakdown: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LegendItemPayload {
-    pub label: &'static str,
-    pub band_index: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -183,7 +177,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             data_card: data_card_payload(dataset, range),
             calendar: CalendarPayload {
                 cells: calendar_payload_cells(dataset, range, &summary),
-                legend: Vec::new(),
+                legend_html: crate::charts::legend_markup(&summary),
             },
             commute_casual: CommuteCasualPayload {
                 weekdays: weekday_payloads(),
@@ -200,6 +194,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 slug: definition.slug,
                 title: definition.title,
                 deck: definition.deck,
+                method: definition.method,
             })
             .collect(),
     }

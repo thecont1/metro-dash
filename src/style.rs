@@ -247,6 +247,8 @@ body.chart-data-card .prepare-band{display:none}
 body.chart-data-card .chart-stage{justify-content:center}
 body.chart-data-card .chart-shell{justify-content:center}
 body.chart-data-card .d3-datacard-scene{position:absolute;pointer-events:none;width:0;height:0;overflow:visible}
+body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap{display:none}
+body.chart-data-card .legend,body.chart-commute-casual .legend{display:none}
 .data-card-wrap{max-width:1100px;margin:0 auto;width:100%}
 .data-card-inner{background:var(--paper);border:1px solid var(--hairline);border-radius:12px;padding:28px 32px;display:flex;flex-direction:column;gap:24px}
 .dc-top-story{display:flex;flex-direction:column;gap:20px}
