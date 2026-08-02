@@ -299,45 +299,6 @@ fn normalise_record(
     mapping: &FieldMapping,
     date: NaiveDate,
 ) -> RidershipRecord {
-    let smart_card = clean_number(
-        mapping
-            .smart_card
-            .as_deref()
-            .and_then(|name| field(headers, row, name)),
-    );
-    let ncmc = clean_number(
-        mapping
-            .ncmc
-            .as_deref()
-            .and_then(|name| field(headers, row, name)),
-    );
-    let token = clean_number(
-        mapping
-            .token
-            .as_deref()
-            .and_then(|name| field(headers, row, name)),
-    );
-    let qr = clean_number(
-        mapping
-            .qr
-            .as_deref()
-            .and_then(|name| field(headers, row, name)),
-    );
-    let group_ticket = clean_number(
-        mapping
-            .group_ticket
-            .as_deref()
-            .and_then(|name| field(headers, row, name)),
-    );
-    let total_ridership = clean_number(
-        mapping
-            .total
-            .as_deref()
-            .and_then(|name| field(headers, row, name)),
-    )
-    .or_else(|| sum_complete([smart_card, ncmc, token, qr, group_ticket]));
-    let commuter_ridership = sum_complete([smart_card, ncmc]);
-    let casual_ridership = sum_complete([token, qr, group_ticket]);
     let stored_value = clean_number(
         mapping
             .stored_value
@@ -380,6 +341,57 @@ fn normalise_record(
             .as_deref()
             .and_then(|name| field(headers, row, name)),
     );
+    let smart_card = sum_complete([stored_value, one_day_pass, three_day_pass, five_day_pass])
+        .or_else(|| {
+            clean_number(
+                mapping
+                    .smart_card
+                    .as_deref()
+                    .and_then(|name| field(headers, row, name)),
+            )
+        });
+    let qr =
+        sum_complete([qr_namma, qr_whatsapp, qr_paytm]).or_else(|| {
+            clean_number(
+                mapping
+                    .qr
+                    .as_deref()
+                    .and_then(|name| field(headers, row, name)),
+            )
+        });
+    let ncmc = clean_number(
+        mapping
+            .ncmc
+            .as_deref()
+            .and_then(|name| field(headers, row, name)),
+    );
+    let token = clean_number(
+        mapping
+            .token
+            .as_deref()
+            .and_then(|name| field(headers, row, name)),
+    );
+    let group_ticket = clean_number(
+        mapping
+            .group_ticket
+            .as_deref()
+            .and_then(|name| field(headers, row, name)),
+    );
+    let total_ridership = sum_complete([
+        stored_value,
+        one_day_pass,
+        three_day_pass,
+        five_day_pass,
+        token,
+        ncmc,
+        qr_namma,
+        qr_whatsapp,
+        qr_paytm,
+        group_ticket,
+    ])
+    .or_else(|| sum_complete([smart_card, ncmc, token, qr, group_ticket]));
+    let commuter_ridership = sum_complete([smart_card, ncmc]);
+    let casual_ridership = sum_complete([token, qr, group_ticket]);
     let raw_fields = headers
         .iter()
         .enumerate()
