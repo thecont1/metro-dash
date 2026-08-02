@@ -19,8 +19,6 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const chartEyebrow = document.querySelector('.stage-topline .eyebrow');
   const priorButton = document.querySelector('.arrow-button.prev');
   const nextButton = document.querySelector('.arrow-button.next');
-  const resetLink = document.querySelector('.range-actions .text-button[href*="start=2026-01-01"]');
-  const allDataLink = document.querySelector('.range-actions .text-button:not([href*="start=2026-01-01"])');
   const payloadNode = document.querySelector('#chart-data');
   if (!startPicker || !endPicker || !startSlider || !endSlider || !payloadNode || !chartShell) return;
 
@@ -136,12 +134,14 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   };
 
   const updateActionLinks = (start, end) => {
-    const minDate = payload.dataset.minDate;
-    const maxDate = payload.dataset.maxDate;
-    const resetStart = resetLink ? new URL(resetLink.href).searchParams.get('start') : null;
-    const resetEnd = resetLink ? new URL(resetLink.href).searchParams.get('end') : null;
-    if (resetLink) setDisabled(resetLink, resetStart && resetEnd && start === resetStart && end === resetEnd);
-    if (allDataLink) setDisabled(allDataLink, start === minDate && end === maxDate);
+    document.querySelectorAll('.range-actions .text-button').forEach((link) => {
+      const href = link.getAttribute('href');
+      if (!href) return;
+      const params = new URL(href, window.location.origin).searchParams;
+      const linkStart = params.get('start');
+      const linkEnd = params.get('end');
+      setDisabled(link, start === linkStart && end === linkEnd);
+    });
   };
 
   const syncControls = (nextPayload) => {

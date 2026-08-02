@@ -1,13 +1,11 @@
 use std::{collections::HashMap, fs, path::PathBuf};
 
-use chrono::{Datelike, NaiveDate, Weekday};
+use chrono::{Datelike, Duration, Months, NaiveDate, Weekday};
 use csv::StringRecord;
 use reqwest::Client;
 
 pub const SOURCE_URL: &str = "https://raw.githubusercontent.com/thecont1/namma-metro-ridership-tracker/main/NammaMetro_Ridership_Dataset.csv";
 pub const SOURCE_PAGE_URL: &str = "https://github.com/thecont1/namma-metro-ridership-tracker";
-pub const DEFAULT_START: &str = "2026-01-01";
-pub const DEFAULT_END: &str = "2026-06-30";
 pub const DEFAULT_CACHE_PATH: &str = ".cache/namma-metro-ridership.csv";
 pub const FIRST_VISIT_WINDOW_DAYS: i64 = 90;
 
@@ -112,15 +110,24 @@ pub fn choose_range(dataset: &Dataset, start: Option<&str>, end: Option<&str>) -
     DateRange { start, end }
 }
 
-pub fn default_range(dataset: &Dataset) -> DateRange {
-    choose_range(dataset, Some(DEFAULT_START), Some(DEFAULT_END))
-}
-
 pub fn default_first_visit_range(dataset: &Dataset) -> DateRange {
     let end_target = dataset.max_date;
     let start_target = end_target - chrono::Duration::days(FIRST_VISIT_WINDOW_DAYS);
     let start = nearest_available(dataset, start_target.max(dataset.min_date));
     let end = nearest_available(dataset, end_target);
+    DateRange { start, end }
+}
+
+pub fn last_n_months_range(dataset: &Dataset, months: u32) -> DateRange {
+    let latest = dataset.max_date;
+    let first_day_of_ongoing =
+        NaiveDate::from_ymd_opt(latest.year(), latest.month(), 1).expect("valid first of month");
+    let end = (first_day_of_ongoing - Duration::days(1)).max(dataset.min_date);
+    let start = first_day_of_ongoing
+        .checked_sub_months(Months::new(months))
+        .map(|date| date.max(dataset.min_date))
+        .unwrap_or(dataset.min_date)
+        .min(end);
     DateRange { start, end }
 }
 

@@ -9,7 +9,7 @@ use topcoat::{
 use crate::charts::{CHARTS, Chart, calendar_markup, data_card_markup, line_chart_markup};
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
 use crate::data::{
-    DEFAULT_END, DEFAULT_START, Dataset, SOURCE_PAGE_URL, choose_range, default_range, record_index,
+    Dataset, DateRange, SOURCE_PAGE_URL, choose_range, last_n_months_range, record_index,
 };
 use crate::payload::chart_payload_for;
 use crate::style::STYLE;
@@ -39,8 +39,7 @@ pub fn parse_query(query: &str) -> QueryState {
     state
 }
 
-pub fn default_range_link(dataset: &Dataset, chart: Chart) -> String {
-    let range = default_range(dataset);
+fn range_link(range: &DateRange, chart: Chart) -> String {
     format!(
         "?start={}&end={}&chart={}",
         range.start,
@@ -50,12 +49,40 @@ pub fn default_range_link(dataset: &Dataset, chart: Chart) -> String {
 }
 
 pub fn all_data_link(dataset: &Dataset, chart: Chart) -> String {
-    format!(
-        "?start={}&end={}&chart={}",
-        dataset.min_date,
-        dataset.max_date,
-        chart.slug()
+    range_link(
+        &DateRange {
+            start: dataset.min_date,
+            end: dataset.max_date,
+        },
+        chart,
     )
+}
+
+pub fn last_n_months_link(dataset: &Dataset, chart: Chart, months: u32) -> String {
+    range_link(&last_n_months_range(dataset, months), chart)
+}
+
+pub fn range_action_links(dataset: &Dataset, chart: Chart, current: &DateRange) -> String {
+    let actions = [
+        ("Last 3 months", last_n_months_link(dataset, chart, 3)),
+        ("Last 6 months", last_n_months_link(dataset, chart, 6)),
+        ("Last 9 months", last_n_months_link(dataset, chart, 9)),
+        ("Last one year", last_n_months_link(dataset, chart, 12)),
+        ("Use all available data", all_data_link(dataset, chart)),
+    ];
+    actions
+        .iter()
+        .map(|(label, href)| {
+            let params = parse_query(href.trim_start_matches('?'));
+            let disabled = current.start.to_string() == params.start.unwrap_or_default()
+                && current.end.to_string() == params.end.unwrap_or_default();
+            format!(
+                r#"<a class="text-button" href="{href}" aria-disabled="{disabled}" tabindex="{tabindex}">{label}</a>"#,
+                disabled = disabled,
+                tabindex = if disabled { "-1" } else { "0" },
+            )
+        })
+        .collect()
 }
 
 const MONTHS: [&str; 12] = [
@@ -164,9 +191,7 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         dataset.max_date.format("%-d %b %Y"),
         refreshed_ist
     );
-    let reset_range = choose_range(&dataset, Some(DEFAULT_START), Some(DEFAULT_END));
-    let reset_disabled = range == reset_range;
-    let all_disabled = range.start == dataset.min_date && range.end == dataset.max_date;
+    let range_actions = range_action_links(&dataset, chart, &range);
     let chart_index_str = (chart.index() + 1).to_string();
     let chart_total_str = CHARTS.len().to_string();
     let available_dates = dataset
@@ -294,23 +319,8 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                                     </div>
                                 </label>
                             </div>
-                            <div class="range-actions">
-                                <a
-                                    class="text-button"
-                                    href=(default_range_link(&dataset, chart))
-                                    aria-disabled=(reset_disabled.to_string())
-                                    tabindex=(if reset_disabled { "-1" } else { "0" })
-                                >
-                                    "Reset to Jan–Jun 2026"
-                                </a>
-                                <a
-                                    class="text-button"
-                                    href=(all_data_link(&dataset, chart))
-                                    aria-disabled=(all_disabled.to_string())
-                                    tabindex=(if all_disabled { "-1" } else { "0" })
-                                >
-                                    "Use all available data"
-                                </a>
+                            <div class="range-actions" role="group" aria-label="Quick date range filters">
+                                (Unescaped::new_unchecked(range_actions))
                             </div>
                         </div>
                         <div class="chart-shell">

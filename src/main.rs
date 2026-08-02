@@ -134,7 +134,7 @@ mod tests {
         summarise,
     };
     use payload::chart_payload_for;
-    use render::{all_data_link, default_range_link};
+    use render::{all_data_link, last_n_months_link};
 
     fn fixture_dataset() -> Dataset {
         parse_dataset(
@@ -298,12 +298,12 @@ mod tests {
     fn range_links_serialise_dates_and_preserve_chart() {
         let dataset = fixture_dataset();
         assert_eq!(
-            default_range_link(&dataset, Chart::CommuteCasual),
-            "?start=2026-01-01&end=2026-01-20&chart=commute-casual"
-        );
-        assert_eq!(
             all_data_link(&dataset, Chart::Calendar),
             "?start=2026-01-01&end=2026-01-20&chart=calendar"
+        );
+        assert_eq!(
+            last_n_months_link(&dataset, Chart::CommuteCasual, 3),
+            "?start=2026-01-01&end=2026-01-01&chart=commute-casual"
         );
     }
 
