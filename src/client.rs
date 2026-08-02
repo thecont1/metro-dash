@@ -33,16 +33,15 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const chartOrder = ['data-card', 'calendar', 'commute-casual'];
 
   const SS_KEY = 'metroDashState';
-  const storedState = () => {
-    try { return JSON.parse(sessionStorage.getItem(SS_KEY) || '{}'); } catch { return {}; }
-  };
+  // Reset to the latest datapoint on every page load; sessionStorage is only
+  // used to keep transient navigation state within a single pageview.
+  try { sessionStorage.removeItem(SS_KEY); } catch {}
   const saveState = (state) => {
     try { sessionStorage.setItem(SS_KEY, JSON.stringify(state)); } catch {}
     history.replaceState(state, '', '/');
   };
 
-  const initialState = storedState();
-  let activeChart = chartRegistry[initialState.chart] ? initialState.chart : 'data-card';
+  let activeChart = 'data-card';
 
   const navigateToChart = (chart) => {
     if (chart === activeChart || !chartRegistry[chart]) return;
@@ -655,28 +654,14 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     }, { passive: true });
   }
 
-  // The URL is always "/"; sessionStorage is the source of truth.
+  // The URL is always "/". Each page load resets to the default data-card
+  // view so the latest datapoint is shown.
 
   if (D3) {
     syncControls(payload);
-
-    const restoreChart = () => {
-      if (activeChart !== 'data-card') {
-        syncChartChrome();
-        renderActiveChart(false);
-      }
-    };
-
-    const restoreRange = () => {
-      const { start, end } = initialState;
-      if (start && end && (start !== payload.range.start || end !== payload.range.end)) {
-        return fetchRange(start, end, {animate: false});
-      }
-      return Promise.resolve();
-    };
-
-    restoreChart();
-    restoreRange().then(() => updateUrl({start: payload.range.start, end: payload.range.end}));
+    syncChartChrome();
+    renderActiveChart(false);
+    updateUrl({start: payload.range.start, end: payload.range.end});
   }
 })();
 "#;
