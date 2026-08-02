@@ -6,8 +6,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const canAnimate = !reducedMotion;
   // Chart titles are rendered server-side from ChartDefinition. The
-  // client only needs the active-chart switch for arrow-key navigation;
-  // labels are read from the live DOM, not a duplicated registry.
+  // client owns chart and range state in sessionStorage and always keeps
+  // the URL at "/"; labels are read from the live DOM.
   const startPicker = document.querySelector('[data-date-type="start"]');
   const endPicker = document.querySelector('[data-date-type="end"]');
   const startSlider = document.querySelector('#range-start');
@@ -25,19 +25,29 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let payload = JSON.parse(payloadNode.textContent || '{}');
   let dates = payload.dataset?.availableDates || (document.querySelector('.range-controls')?.dataset.availableDates || '').split(',').filter(Boolean);
   if (!dates.length) return;
-  const initialParams = new URLSearchParams(window.location.search);
-  let activeChart = initialParams.get('chart') === 'commute-casual' ? 'commute-casual'
-    : initialParams.get('chart') === 'calendar' ? 'calendar'
-    : 'data-card';
+
   let rangeTimer;
 
   const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true };
   const chartOrder = ['data-card', 'calendar', 'commute-casual'];
 
+  const SS_KEY = 'metroDashState';
+  const storedState = () => {
+    try { return JSON.parse(sessionStorage.getItem(SS_KEY) || '{}'); } catch { return {}; }
+  };
+  const saveState = (state) => {
+    try { sessionStorage.setItem(SS_KEY, JSON.stringify(state)); } catch {}
+    history.replaceState(state, '', '/');
+  };
+
+  const initialState = storedState();
+  let activeChart = chartRegistry[initialState.chart] ? initialState.chart : 'data-card';
+
   const navigateToChart = (chart) => {
     if (chart === activeChart || !chartRegistry[chart]) return;
     activeChart = chart;
-    updateUrl({start: payload.range.start, end: payload.range.end, chart: activeChart});
+    saveState({start: payload.range.start, end: payload.range.end, chart: activeChart});
+    syncChartChrome();
     renderActiveChart(true);
   };
 
@@ -86,14 +96,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     el.setAttribute('aria-disabled', String(disabled));
     el.setAttribute('tabindex', disabled ? '-1' : '0');
   };
-  const currentParams = () => new URLSearchParams(window.location.search);
-  const updateUrl = ({start, end, chart = activeChart, replace = false}) => {
-    const params = currentParams();
-    params.set('start', start);
-    params.set('end', end);
-    params.set('chart', chart);
-    const next = `${window.location.pathname}?${params.toString()}`;
-    (replace ? history.replaceState : history.pushState).call(history, {start, end, chart}, '', next);
+  const updateUrl = ({start, end, chart = activeChart}) => {
+    saveState({start, end, chart});
   };
   const showTooltip = (target) => {
     const text = target.dataset.tooltip || target.getAttribute('aria-label');
@@ -135,11 +139,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   const updateActionLinks = (start, end) => {
     document.querySelectorAll('.range-actions .text-button').forEach((link) => {
-      const href = link.getAttribute('href');
-      if (!href) return;
-      const params = new URL(href, window.location.origin).searchParams;
-      const linkStart = params.get('start');
-      const linkEnd = params.get('end');
+      const linkStart = link.dataset.start;
+      const linkEnd = link.dataset.end;
       setDisabled(link, start === linkStart && end === linkEnd);
     });
   };
@@ -157,10 +158,15 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   };
 
   const syncChartChrome = () => {
-    // Title, deck, and eyebrow are rendered server-side from
-    // ChartDefinition; the client only owns disabled-state on the
-    // prev/next buttons (and would re-render them on a hot
-    // swap if we ever introduce one).
+    const definition = payload.definitions?.find(def => def.slug === activeChart);
+    if (definition) {
+      if (chartTitle) chartTitle.textContent = definition.title;
+      if (chartDeck) chartDeck.textContent = definition.deck;
+    }
+    const eyebrowIndex = chartEyebrow?.querySelector('.chart-index');
+    if (eyebrowIndex) {
+      eyebrowIndex.textContent = String(chartOrder.indexOf(activeChart) + 1);
+    }
     setDisabled(priorButton, activeChart === 'data-card');
     setDisabled(nextButton, activeChart === 'commute-casual');
     document.body.className = document.body.className
@@ -511,13 +517,13 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     else renderLine(animate);
   };
 
-  const fetchRange = async (start, end, {replace = false, animate = true} = {}) => {
+  const fetchRange = async (start, end, {animate = true} = {}) => {
     const params = new URLSearchParams({start, end});
     const response = await fetch(`/api/chart?${params.toString()}`, {headers: {'Accept': 'application/json'}});
     if (!response.ok) throw new Error(`chart payload failed: ${response.status}`);
     const nextPayload = await response.json();
     syncControls(nextPayload);
-    updateUrl({start: nextPayload.range.start, end: nextPayload.range.end, replace});
+    updateUrl({start: nextPayload.range.start, end: nextPayload.range.end});
     renderActiveChart(animate);
   };
 
@@ -534,7 +540,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     setPickerValue(endPicker, end);
     updateActionLinks(start, end);
     clearTimeout(rangeTimer);
-    rangeTimer = setTimeout(() => fetchRange(start, end, {replace: true}).catch(console.error), delay);
+    rangeTimer = setTimeout(() => fetchRange(start, end).catch(console.error), delay);
   };
   const syncDateInput = (source) => {
     let start = getPickerValue(startPicker);
@@ -553,7 +559,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     endSlider.value = nearestIndex(end, dates.length - 1);
     updateActionLinks(start, end);
     clearTimeout(rangeTimer);
-    rangeTimer = setTimeout(() => fetchRange(start, end, {replace: true}).catch(console.error), 0);
+    rangeTimer = setTimeout(() => fetchRange(start, end).catch(console.error), 0);
   };
 
   startSlider.addEventListener('input', () => sync('start'));
@@ -569,18 +575,18 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     if (!link) return;
     event.preventDefault();
     if (link.getAttribute('aria-disabled') === 'true') return;
-    const params = new URLSearchParams(new URL(link.href).search);
-    fetchRange(params.get('start'), params.get('end'), {replace: false}).catch(console.error);
+    const start = link.dataset.start;
+    const end = link.dataset.end;
+    if (!start || !end) return;
+    fetchRange(start, end).catch(console.error);
   });
-  document.querySelector('.navigation-row')?.addEventListener('click', (event) => {
+  document.querySelector('.chart-pager')?.addEventListener('click', (event) => {
     const link = event.target.closest('a[href]');
     if (!link) return;
     event.preventDefault();
     if (link.getAttribute('aria-disabled') === 'true') return;
-    const params = new URLSearchParams(new URL(link.href).search);
-    const chart = params.get('chart') === 'commute-casual' ? 'commute-casual'
-      : params.get('chart') === 'calendar' ? 'calendar'
-      : 'data-card';
+    const chart = link.dataset.chart;
+    if (!chart || !chartRegistry[chart]) return;
     navigateToChart(chart);
   });
   document.addEventListener('keydown', (event) => {
@@ -631,15 +637,28 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     }, { passive: true });
   }
 
-  window.addEventListener('popstate', () => {
-    const params = currentParams();
-    activeChart = chartRegistry[params.get('chart')] ? params.get('chart') : 'data-card';
-    renderActiveChart(false);
-  });
+  // The URL is always "/"; sessionStorage is the source of truth.
 
   if (D3) {
     syncControls(payload);
-    renderActiveChart(false);
+
+    const restoreChart = () => {
+      if (activeChart !== 'data-card') {
+        syncChartChrome();
+        renderActiveChart(false);
+      }
+    };
+
+    const restoreRange = () => {
+      const { start, end } = initialState;
+      if (start && end && (start !== payload.range.start || end !== payload.range.end)) {
+        return fetchRange(start, end, {animate: false});
+      }
+      return Promise.resolve();
+    };
+
+    restoreChart();
+    restoreRange().then(() => updateUrl({start: payload.range.start, end: payload.range.end}));
   }
 })();
 "#;

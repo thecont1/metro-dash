@@ -39,45 +39,29 @@ pub fn parse_query(query: &str) -> QueryState {
     state
 }
 
-fn range_link(range: &DateRange, chart: Chart) -> String {
-    format!(
-        "?start={}&end={}&chart={}",
-        range.start,
-        range.end,
-        chart.slug()
-    )
-}
-
-pub fn all_data_link(dataset: &Dataset, chart: Chart) -> String {
-    range_link(
-        &DateRange {
-            start: dataset.min_date,
-            end: dataset.max_date,
-        },
-        chart,
-    )
-}
-
-pub fn last_n_months_link(dataset: &Dataset, chart: Chart, months: u32) -> String {
-    range_link(&last_n_months_range(dataset, months), chart)
-}
-
 pub fn range_action_links(dataset: &Dataset, chart: Chart, current: &DateRange) -> String {
     let actions = [
-        ("Last 3 months", last_n_months_link(dataset, chart, 3)),
-        ("Last 6 months", last_n_months_link(dataset, chart, 6)),
-        ("Last 9 months", last_n_months_link(dataset, chart, 9)),
-        ("Last one year", last_n_months_link(dataset, chart, 12)),
-        ("Use all available data", all_data_link(dataset, chart)),
+        ("Last 3 months", last_n_months_range(dataset, 3)),
+        ("Last 6 months", last_n_months_range(dataset, 6)),
+        ("Last 9 months", last_n_months_range(dataset, 9)),
+        ("Last one year", last_n_months_range(dataset, 12)),
+        (
+            "Use all available data",
+            DateRange {
+                start: dataset.min_date,
+                end: dataset.max_date,
+            },
+        ),
     ];
     actions
         .iter()
-        .map(|(label, href)| {
-            let params = parse_query(href.trim_start_matches('?'));
-            let disabled = current.start.to_string() == params.start.unwrap_or_default()
-                && current.end.to_string() == params.end.unwrap_or_default();
+        .map(|(label, range)| {
+            let disabled = current.start == range.start && current.end == range.end;
             format!(
-                r#"<a class="text-button" href="{href}" aria-disabled="{disabled}" tabindex="{tabindex}">{label}</a>"#,
+                r#"<a class="text-button" href="/" data-start="{start}" data-end="{end}" data-chart="{chart}" aria-disabled="{disabled}" tabindex="{tabindex}">{label}</a>"#,
+                start = range.start,
+                end = range.end,
+                chart = chart.slug(),
                 disabled = disabled,
                 tabindex = if disabled { "-1" } else { "0" },
             )
@@ -143,18 +127,8 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
     } else {
         chart
     };
-    let previous_href = format!(
-        "?start={}&end={}&chart={}",
-        range.start,
-        range.end,
-        prev_chart.slug()
-    );
-    let next_href = format!(
-        "?start={}&end={}&chart={}",
-        range.start,
-        range.end,
-        next_chart.slug()
-    );
+    let previous_chart_slug = prev_chart.slug();
+    let next_chart_slug = next_chart.slug();
     let definition = chart.definition();
     let chart_title = definition.title;
     let chart_deck = definition.deck;
@@ -261,7 +235,8 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                                 <a
                                     class="arrow-button prev"
                                     aria-label=(format!("Previous chart: {}", previous_definition.title))
-                                    href=(previous_href.clone())
+                                    href="/"
+                                    data-chart=(previous_chart_slug)
                                     aria-disabled=(if prior_disabled { "true" } else { "false" })
                                     tabindex=(if prior_disabled { "-1" } else { "0" })
                                 >
@@ -271,7 +246,8 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                                 <a
                                     class="arrow-button next"
                                     aria-label=(format!("Next chart: {}", next_definition.title))
-                                    href=(next_href)
+                                    href="/"
+                                    data-chart=(next_chart_slug)
                                     aria-disabled=(if next_disabled { "true" } else { "false" })
                                     tabindex=(if next_disabled { "-1" } else { "0" })
                                 >

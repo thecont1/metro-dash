@@ -19,7 +19,7 @@ mod style;
 use charts::Chart;
 use data::{choose_range, fetch_dataset, load_cached_dataset};
 use payload::{ChartPayload, chart_payload_for};
-use render::{failure_view, parse_query, render_view};
+use render::{QueryState, failure_view, parse_query, render_view};
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -102,9 +102,17 @@ async fn home(cx: &Cx) -> Result {
         *state.dataset.write().await = Some(dataset.clone());
         snapshot = Some(dataset);
     }
-    let chart = Chart::from_query(query.chart.as_deref());
     match snapshot {
-        Some(dataset) => render_view(cx, dataset, query, chart).await,
+        Some(dataset) => {
+            // The client owns chart and range state (sessionStorage); the server
+            // always renders the default landing view.
+            let chart = Chart::DataCard;
+            let query = QueryState {
+                chart: Some(chart.slug().to_string()),
+                ..Default::default()
+            };
+            render_view(cx, dataset, query, chart).await
+        }
         None => failure_view(cx).await,
     }
 }
@@ -134,7 +142,7 @@ mod tests {
         summarise,
     };
     use payload::chart_payload_for;
-    use render::{all_data_link, last_n_months_link};
+    use render::range_action_links;
 
     fn fixture_dataset() -> Dataset {
         parse_dataset(
@@ -295,16 +303,14 @@ mod tests {
     }
 
     #[test]
-    fn range_links_serialise_dates_and_preserve_chart() {
+    fn range_actions_render_clean_href_with_data_attrs() {
         let dataset = fixture_dataset();
-        assert_eq!(
-            all_data_link(&dataset, Chart::Calendar),
-            "?start=2026-01-01&end=2026-01-20&chart=calendar"
-        );
-        assert_eq!(
-            last_n_months_link(&dataset, Chart::CommuteCasual, 3),
-            "?start=2026-01-01&end=2026-01-01&chart=commute-casual"
-        );
+        let range = choose_range(&dataset, None, None);
+        let actions = range_action_links(&dataset, Chart::Calendar, &range);
+        assert!(actions.contains(r#"href="/""#));
+        assert!(actions.contains(r#"data-start="2026-01-01""#));
+        assert!(actions.contains(r#"data-end="2026-01-20""#));
+        assert!(actions.contains(r#"data-chart="calendar""#));
     }
 
     #[test]

@@ -42,13 +42,6 @@ pub static CHARTS: [ChartDefinition; 3] = [
 ];
 
 impl Chart {
-    pub fn from_query(value: Option<&str>) -> Self {
-        CHARTS
-            .iter()
-            .find(|definition| Some(definition.slug) == value)
-            .map(|definition| definition.chart)
-            .unwrap_or(Self::DataCard)
-    }
     pub fn slug(self) -> &'static str {
         self.definition().slug
     }

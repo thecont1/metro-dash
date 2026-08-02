@@ -1,8 +1,8 @@
 use serde::Serialize;
 
 use crate::charts::{
-    band_index, band_label, fare_media_breakdown, format_number_full, format_range, insight_line,
-    weekday_name,
+    CHARTS, band_index, band_label, fare_media_breakdown, format_number_full, format_range,
+    insight_line, weekday_name,
 };
 use crate::data::{Dataset, DateRange, RangeSummary, RidershipRecord, record_index, summarise};
 use chrono::{Datelike, NaiveDate, Weekday};
@@ -14,6 +14,15 @@ pub struct ChartPayload {
     pub dataset: PayloadDataset,
     pub summary: PayloadSummary,
     pub charts: PayloadCharts,
+    pub definitions: Vec<ChartDefinitionPayload>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartDefinitionPayload {
+    pub slug: &'static str,
+    pub title: &'static str,
+    pub deck: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -185,6 +194,14 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 insight: insight_line(&summary),
             },
         },
+        definitions: CHARTS
+            .iter()
+            .map(|definition| ChartDefinitionPayload {
+                slug: definition.slug,
+                title: definition.title,
+                deck: definition.deck,
+            })
+            .collect(),
     }
 }
 
