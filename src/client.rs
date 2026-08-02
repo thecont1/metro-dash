@@ -185,6 +185,64 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let _calSvg = null;
   let _swatchBound = false;
 
+  const applyLegendFilter = (bandIdx) => {
+    if (!_calSvg) return;
+    _calSvg.selectAll('.d3-cell')
+      .style('opacity', d => d.bandIndex === bandIdx ? 1 : 0)
+      .style('pointer-events', d => d.bandIndex === bandIdx ? 'all' : 'none');
+  };
+
+  const clearLegendFilter = () => {
+    if (!_calSvg) return;
+    _calSvg.selectAll('.d3-cell')
+      .style('opacity', 1)
+      .style('pointer-events', 'all');
+  };
+
+  const syncLegend = () => {
+    const summary = payload.summary;
+    const caption = document.querySelector('.legend-caption');
+    const meta = document.querySelector('.legend-meta:not(.legend-missing-note)');
+    if (!caption || !meta) return;
+
+    if (summary.validTotalCount === 0 || summary.totalMin == null || summary.totalMax == null) {
+      caption.textContent = 'Observed range unavailable for this selection';
+    } else if (summary.totalMin === summary.totalMax) {
+      caption.textContent = `Observed: ${summary.totalMinLabel}`;
+    } else {
+      caption.textContent = `Observed: ${summary.totalMinLabel} \u2013 ${summary.totalMaxLabel}`;
+    }
+
+    if (summary.validTotalCount === 0) {
+      meta.textContent = 'Buckets unavailable: no published totals in this range.';
+    } else if (summary.validTotalCount < 10) {
+      const s = summary.validTotalCount === 1 ? '' : 's';
+      meta.textContent = `Buckets are approximate (${summary.validTotalCount} day${s} in range; tint carries limited signal).`;
+    } else {
+      meta.textContent = "Each cell's shade maps to its percentile of daily ridership within your selection.";
+    }
+
+    const pctMap = {};
+    (summary.percentileValues || []).forEach(([p, v]) => { pctMap[p] = v; });
+    const get = (p) => pctMap[p] || '';
+    const titles = [
+      `< p2  (< ${get(2)})`,
+      `p2 \u2013 p5  (${get(2)} \u2013 ${get(5)})`,
+      `p5 \u2013 p10  (${get(5)} \u2013 ${get(10)})`,
+      `p10 \u2013 p25  (${get(10)} \u2013 ${get(25)})`,
+      `p25 \u2013 p50  (${get(25)} \u2013 ${get(50)})`,
+      `p50 \u2013 p75  (${get(50)} \u2013 ${get(75)})`,
+      `p75 \u2013 p90  (${get(75)} \u2013 ${get(90)})`,
+      `p90 \u2013 p95  (${get(90)} \u2013 ${get(95)})`,
+      `p95 \u2013 p98  (${get(95)} \u2013 ${get(98)})`,
+      `> p98  (> ${get(98)})`,
+    ];
+    const swatches = document.querySelectorAll('.legend-swatch');
+    swatches.forEach((sw, i) => {
+      if (titles[i]) sw.setAttribute('title', titles[i]);
+    });
+  };
+
   const renderCalendar = (animate = true) => {
       if (!D3) return;
       const scene = ensureScene('d3-calendar-scene');
@@ -324,18 +382,20 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
             const bandIdx = parseInt(sw.className.match(/band-(\d+)/)?.[1] ?? -1);
             const isActive = sw.classList.toggle('active');
             swatches.forEach(s => { if (s !== sw) s.classList.remove('active'); });
-            if (!_calSvg) return;
-            const allCells = _calSvg.selectAll('.d3-cell');
             if (!isActive) {
-              allCells.style('opacity', 1);
+              clearLegendFilter();
             } else {
-              allCells.style('opacity', d => {
-                if (d.missing) return 0.08;
-                return d.bandIndex === bandIdx ? 1 : 0.08;
-              });
+              applyLegendFilter(bandIdx);
             }
           });
         });
+      }
+
+      syncLegend();
+      const activeSwatch = document.querySelector('.legend-swatch.active');
+      if (activeSwatch) {
+        const bandIdx = parseInt(activeSwatch.className.match(/band-(\d+)/)?.[1] ?? -1);
+        applyLegendFilter(bandIdx);
       }
 
       choreograph(scene.node());
@@ -477,10 +537,23 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     rangeTimer = setTimeout(() => fetchRange(start, end, {replace: true}).catch(console.error), delay);
   };
   const syncDateInput = (source) => {
-    const value = source === 'start' ? getPickerValue(startPicker) : getPickerValue(endPicker);
-    if (source === 'start') startSlider.value = nearestIndex(value, 0);
-    else endSlider.value = nearestIndex(value, dates.length - 1);
-    sync(source, 0);
+    let start = getPickerValue(startPicker);
+    let end = getPickerValue(endPicker);
+    if (!start || !end) return;
+    if (start > end) {
+      if (source === 'start') {
+        end = start;
+        setPickerValue(endPicker, end);
+      } else {
+        start = end;
+        setPickerValue(startPicker, start);
+      }
+    }
+    startSlider.value = nearestIndex(start, 0);
+    endSlider.value = nearestIndex(end, dates.length - 1);
+    updateActionLinks(start, end);
+    clearTimeout(rangeTimer);
+    rangeTimer = setTimeout(() => fetchRange(start, end, {replace: true}).catch(console.error), 0);
   };
 
   startSlider.addEventListener('input', () => sync('start'));

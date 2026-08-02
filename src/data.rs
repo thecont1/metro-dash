@@ -96,8 +96,16 @@ pub fn choose_range(dataset: &Dataset, start: Option<&str>, end: Option<&str>) -
     let default_pair = default_first_visit_range(dataset);
     let mut start = requested_start.unwrap_or(default_pair.start);
     let mut end = requested_end.unwrap_or(default_pair.end);
-    start = nearest_available(dataset, start);
-    end = nearest_available(dataset, end);
+    if requested_start.is_some() {
+        start = start.max(dataset.min_date).min(dataset.max_date);
+    } else {
+        start = nearest_available(dataset, start);
+    }
+    if requested_end.is_some() {
+        end = end.max(dataset.min_date).min(dataset.max_date);
+    } else {
+        end = nearest_available(dataset, end);
+    }
     if start > end {
         std::mem::swap(&mut start, &mut end);
     }
@@ -129,7 +137,9 @@ pub fn record_index(dataset: &Dataset, date: NaiveDate) -> usize {
     dataset
         .records
         .iter()
-        .position(|record| record.date == date)
+        .enumerate()
+        .min_by_key(|(_, record)| (record.date - date).num_days().unsigned_abs())
+        .map(|(index, _)| index)
         .unwrap_or(0)
 }
 
