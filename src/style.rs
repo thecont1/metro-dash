@@ -130,7 +130,8 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .weekday-fixed{display:flex;flex-direction:column;justify-content:flex-start;gap:2px;padding-top:28px;flex:0 0 auto;width:32px}
 .weekday-fixed span{font:300 10px/24px SFMono,Monaco,Menlo,monospace;letter-spacing:.04em;color:var(--muted);height:24px;display:flex;align-items:center}
 .calendar-scroll-wrap{flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden}
-.d3-month-label{font:600 12px/1 var(--font-display);letter-spacing:.01em;fill:var(--ink);text-anchor:middle}
+.d3-month-label{font:600 12px/1 var(--font-display);letter-spacing:.01em;fill:var(--ink);text-anchor:start}
+.d3-month-line{shape-rendering:crispEdges}
 
 /* SSR calendar layout — staircase grid.
    Each cell placed by grid-column (col) and grid-row (weekday+2).

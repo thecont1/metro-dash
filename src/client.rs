@@ -303,35 +303,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
         .attr('aria-label', 'Daily ridership calendar heatmap, enhanced with D3');
       _calSvg = svg;
 
-      // Compute month centers for centered labels
-      const monthGroups = {};
-      cells.forEach(d => {
-        const m = d.date.substring(0, 7);
-        if (!monthGroups[m]) monthGroups[m] = { min: Infinity, max: -Infinity, label: null };
-        monthGroups[m].min = Math.min(monthGroups[m].min, d.col);
-        monthGroups[m].max = Math.max(monthGroups[m].max, d.col);
-        if (d.monthLabel) monthGroups[m].label = d.monthLabel;
-      });
       // Month boundary columns — extra gap inserted at each month change
       const monthBoundaryCols = [...monthBoundaries].sort((a, b) => a - b);
-
-      const monthCenters = Object.values(monthGroups).filter(g => g.label).map(g => {
-        const xMin = (() => { let x = g.min * (cell + gap); monthBoundaryCols.forEach(c => { if (g.min >= c) x += monthGap; }); return x; })();
-        const xMax = (() => { let x = g.max * (cell + gap); monthBoundaryCols.forEach(c => { if (g.max >= c) x += monthGap; }); return x; })();
-        return { label: g.label, centerX: (xMin + xMax + cell) / 2, key: g.label };
-      });
-
-      // Month labels — centered above month block, serif font
-      svg.selectAll('.d3-month-label').data(monthCenters, d => d.key).join(
-        enter => enter.append('text').attr('class', 'd3-month-label').attr('opacity', 0).text(d => d.label),
-        update => update.text(d => d.label),
-        exit => exit.remove()
-      )
-        .attr('x', d => d.centerX)
-        .attr('y', 18)
-        .attr('text-anchor', 'middle')
-        .transition().duration(canAnimate && animate ? 220 : 0)
-        .attr('opacity', 1);
 
       // Calendar cells positioned by staircase col, with extra gap at month boundaries
       const xPos = d => {
@@ -339,6 +312,58 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
         monthBoundaryCols.forEach(c => { if (d.col >= c) x += monthGap; });
         return x;
       };
+
+      // Build month blocks, draw separators, and place right-aligned labels
+      const monthGroups = {};
+      cells.forEach(d => {
+        const m = d.date.substring(0, 7);
+        if (!monthGroups[m]) monthGroups[m] = { month: m, min: Infinity, max: -Infinity, label: null };
+        monthGroups[m].min = Math.min(monthGroups[m].min, d.col);
+        monthGroups[m].max = Math.max(monthGroups[m].max, d.col);
+        if (d.monthLabel) monthGroups[m].label = d.monthLabel;
+      });
+      const monthList = Object.values(monthGroups)
+        .filter(g => g.label)
+        .sort((a, b) => a.min - b.min);
+
+      const monthMarkers = monthList.map((g, i) => {
+        const isLast = i === monthList.length - 1;
+        const leftX = xPos({col: g.min});
+        const rightX = xPos({col: g.max}) + cell;
+        const nextLeftX = isLast ? null : xPos({col: monthList[i + 1].min});
+        const lineX = isLast ? null : (rightX + nextLeftX) / 2;
+        return { key: g.month, label: g.label, leftX, lineX };
+      });
+      monthMarkers.forEach((m, i) => {
+        m.leftLineX = i === 0 ? m.leftX : monthMarkers[i - 1].lineX;
+      });
+
+      // Month separator lines (0.7px solid #333333)
+      svg.selectAll('.d3-month-line').data(monthMarkers.filter(d => d.lineX != null), d => d.key).join(
+        enter => enter.append('line').attr('class', 'd3-month-line'),
+        update => update,
+        exit => exit.remove()
+      )
+        .attr('x1', d => d.lineX)
+        .attr('x2', d => d.lineX)
+        .attr('y1', top)
+        .attr('y2', height)
+        .attr('stroke', '#333333')
+        .attr('stroke-width', 0.7)
+        .attr('vector-effect', 'non-scaling-stroke');
+
+      // Month labels — left-aligned against the separator line on the left edge
+      svg.selectAll('.d3-month-label').data(monthMarkers, d => d.key).join(
+        enter => enter.append('text').attr('class', 'd3-month-label').attr('opacity', 0).text(d => d.label),
+        update => update.text(d => d.label),
+        exit => exit.remove()
+      )
+        .attr('x', d => d.leftLineX)
+        .attr('y', 18)
+        .attr('text-anchor', 'start')
+        .transition().duration(canAnimate && animate ? 220 : 0)
+        .attr('opacity', 1);
+
       const joined = svg.selectAll('.d3-cell').data(cells, d => d.date).join(
         enter => {
           const g = enter.append('g').attr('class', d => `d3-cell ${d.missing ? 'missing' : `band-${d.bandIndex ?? 'neutral'}`}`).attr('opacity', 0);
