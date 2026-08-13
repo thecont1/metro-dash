@@ -437,6 +437,7 @@ fn data_card_payload(dataset: &Dataset, range: DateRange) -> DataCardPayload {
                         ("Namma Metro", record.qr_namma),
                         ("WhatsApp", record.qr_whatsapp),
                         ("Paytm", record.qr_paytm),
+                        ("ONDC", record.qr_ondc),
                     ],
                 ),
                 fare_media_item("ncmc", "NCMC", record.ncmc, total_for_pct, &[]),

@@ -717,6 +717,7 @@ pub fn data_card_markup(dataset: &Dataset, range: DateRange) -> String {
                     ("Namma Metro", record.qr_namma),
                     ("WhatsApp", record.qr_whatsapp),
                     ("Paytm", record.qr_paytm),
+                    ("ONDC", record.qr_ondc),
                 ];
                 let sub_html: String = subs
                     .iter()

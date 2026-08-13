@@ -28,6 +28,7 @@ pub struct RidershipRecord {
     pub qr_namma: Option<f64>,
     pub qr_whatsapp: Option<f64>,
     pub qr_paytm: Option<f64>,
+    pub qr_ondc: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +58,7 @@ pub struct FieldMapping {
     pub qr_namma: Option<String>,
     pub qr_whatsapp: Option<String>,
     pub qr_paytm: Option<String>,
+    pub qr_ondc: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -272,6 +274,7 @@ impl FieldMapping {
             qr_namma: find(&["qrnammametro", "qrnamma"]),
             qr_whatsapp: find(&["qrwhatsapp"]),
             qr_paytm: find(&["qrpaytm"]),
+            qr_ondc: find(&["qrondc"]),
         })
     }
 }
@@ -358,6 +361,12 @@ fn normalise_record(
             .as_deref()
             .and_then(|name| field(headers, row, name)),
     );
+    let qr_ondc = clean_number(
+        mapping
+            .qr_ondc
+            .as_deref()
+            .and_then(|name| field(headers, row, name)),
+    );
     let smart_card = sum_complete([stored_value, one_day_pass, three_day_pass, five_day_pass])
         .or_else(|| {
             clean_number(
@@ -367,7 +376,7 @@ fn normalise_record(
                     .and_then(|name| field(headers, row, name)),
             )
         });
-    let qr = sum_complete([qr_namma, qr_whatsapp, qr_paytm]).or_else(|| {
+    let qr = sum_complete([qr_namma, qr_whatsapp, qr_paytm, qr_ondc]).or_else(|| {
         clean_number(
             mapping
                 .qr
@@ -403,6 +412,7 @@ fn normalise_record(
         qr_namma,
         qr_whatsapp,
         qr_paytm,
+        qr_ondc,
         group_ticket,
     ])
     .or_else(|| sum_complete([smart_card, ncmc, token, qr, group_ticket]));
@@ -436,6 +446,7 @@ fn normalise_record(
         qr_namma,
         qr_whatsapp,
         qr_paytm,
+        qr_ondc,
     }
 }
 
