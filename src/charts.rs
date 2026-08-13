@@ -640,6 +640,19 @@ pub fn data_card_markup(dataset: &Dataset, range: DateRange) -> String {
             .to_string();
     };
 
+    // Determine prev/next available dates for day cycling buttons.
+    let current_idx = dataset.records.iter().position(|r| r.date == range.end);
+    let prev_date_str = match current_idx {
+        Some(idx) if idx > 0 => dataset.records[idx - 1].date.to_string(),
+        _ => String::new(),
+    };
+    let next_date_str = match current_idx {
+        Some(idx) if idx + 1 < dataset.records.len() => dataset.records[idx + 1].date.to_string(),
+        _ => String::new(),
+    };
+    let prev_disabled = prev_date_str.is_empty();
+    let next_disabled = next_date_str.is_empty();
+
     let date_display = record.date.format("%A, %-d %B %Y").to_string();
     let date_short = record.date.format("%-d %b %Y").to_string();
 
@@ -759,7 +772,9 @@ pub fn data_card_markup(dataset: &Dataset, range: DateRange) -> String {
   <div class="data-card-inner">
     <div class="dc-top-story">
       <div class="dc-date-row">
+        <button class="dc-day-nav dc-day-prev" type="button" aria-label="Previous day" data-target-date="{prev_date_str}" aria-disabled="{prev_disabled}" tabindex="{}"><span aria-hidden="true">←</span></button>
         <span class="dc-date-value">{date_display}</span>
+        <button class="dc-day-nav dc-day-next" type="button" aria-label="Next day" data-target-date="{next_date_str}" aria-disabled="{next_disabled}" tabindex="{}"><span aria-hidden="true">→</span></button>
       </div>
       <div class="dc-total-container">
         <div class="dc-total-value">{total_label}</div>
@@ -777,6 +792,8 @@ pub fn data_card_markup(dataset: &Dataset, range: DateRange) -> String {
       </div>
     </div>
   </div>
-</div>"#
+</div>"#,
+        if prev_disabled { "-1" } else { "0" },
+        if next_disabled { "-1" } else { "0" },
     )
 }

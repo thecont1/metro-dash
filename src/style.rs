@@ -254,7 +254,11 @@ body.chart-data-card .legend,body.chart-commute-casual .legend{display:none}
 .data-card-inner{background:var(--paper);border:1px solid var(--hairline);border-radius:12px;padding:28px 32px;display:flex;flex-direction:column;gap:24px}
 .dc-top-story{display:flex;flex-direction:column;gap:20px}
 .dc-bottom-story{display:flex;flex-direction:column;gap:12px}
-.dc-date-row{display:flex;justify-content:center}
+.dc-date-row{display:flex;justify-content:center;align-items:center;gap:16px}
+.dc-day-nav{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;border:1px solid var(--hairline);background:var(--surface);color:var(--ink);font-size:1.2rem;font-weight:300;line-height:1;cursor:pointer;transition:background .15s,color .15s,border-color .15s,opacity .15s;flex-shrink:0}
+.dc-day-nav:hover:not([aria-disabled="true"]){background:var(--accent);color:var(--paper);border-color:var(--accent)}
+.dc-day-nav:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dc-day-nav[aria-disabled="true"]{color:var(--muted-2);cursor:not-allowed;opacity:.4}
 .dc-date-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
 .dc-date-value{font-size:18px;font-weight:600;color:var(--ink);font-family:var(--mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
 .dc-total-container{text-align:center}

@@ -533,10 +533,82 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+  const buildDataCardHTML = (card) => {
+    const endIdx = dates.indexOf(payload.range.end);
+    const prevDisabled = endIdx <= 0;
+    const nextDisabled = endIdx < 0 || endIdx >= dates.length - 1;
+    const prevDate = !prevDisabled ? dates[endIdx - 1] : '';
+    const nextDate = !nextDisabled ? dates[endIdx + 1] : '';
+
+    if (!card || !card.fareMedia || !card.fareMedia.length) {
+      return `<div class="data-card-missing">
+    <p class="data-card-missing-title">No data for this date.</p>
+    <p class="data-card-missing-hint">Pick another end date to see a single day's breakdown.</p>
+  </div>`;
+    }
+
+    let barSegments = '';
+    let legendItems = '';
+    let paymentBoxes = '';
+    card.fareMedia.forEach((item) => {
+      const pct = item.percentage;
+      const pctLabel = pct.toFixed(1);
+      if (pct > 0) {
+        barSegments += `<div class="dc-bar-segment dc-bar-${item.key}" style="width:${pct}%" role="img" aria-label="${item.label}: ${pctLabel}%"></div>`;
+      }
+      legendItems += `<div class="dc-legend-item"><span class="dc-legend-color dc-bar-${item.key}"></span>${item.label} ${pctLabel}%</div>`;
+      let breakdown = '';
+      if (item.breakdown && item.breakdown.length) {
+        const subHtml = item.breakdown.map((sub) =>
+          `<div class="dc-sub-row"><span class="dc-sub-label">${sub.label}</span><span class="dc-sub-value">${sub.valueLabel}</span></div>`
+        ).join('');
+        breakdown = `<div class="dc-breakdown">${subHtml}</div>`;
+      }
+      paymentBoxes += `<div class="dc-payment-box dc-bar-${item.key}">
+  <div class="dc-payment-value">${item.valueLabel}</div>
+  <div class="dc-payment-label">${item.label}</div>
+  ${breakdown}
+</div>`;
+    });
+    const missingNote = card.hasMissing ? `<p class="dc-missing-note">Some fare media values are missing for this date. The total may be incomplete.</p>` : '';
+
+    return `<div class="data-card-inner">
+    <div class="dc-top-story">
+      <div class="dc-date-row">
+        <button class="dc-day-nav dc-day-prev" type="button" aria-label="Previous day" data-target-date="${prevDate}" aria-disabled="${prevDisabled}" tabindex="${prevDisabled ? -1 : 0}"><span aria-hidden="true">\u2190</span></button>
+        <span class="dc-date-value">${card.dateDisplay}</span>
+        <button class="dc-day-nav dc-day-next" type="button" aria-label="Next day" data-target-date="${nextDate}" aria-disabled="${nextDisabled}" tabindex="${nextDisabled ? -1 : 0}"><span aria-hidden="true">\u2192</span></button>
+      </div>
+      <div class="dc-total-container">
+        <div class="dc-total-value">${card.totalLabel}</div>
+        <div class="dc-total-label">Total Rides</div>
+      </div>
+      <div class="dc-bar-chart" role="img" aria-label="Fare media proportion bar">
+        ${barSegments}
+      </div>
+      <div class="dc-legend">${legendItems}</div>
+      ${missingNote}
+    </div>
+    <div class="dc-bottom-story">
+      <div class="dc-payment-grid">
+        ${paymentBoxes}
+      </div>
+    </div>
+  </div>`;
+  };
+
   const renderDataCard = (animate = true) => {
     if (!D3) return;
     const scene = ensureScene('d3-datacard-scene');
     const card = payload.charts.dataCard;
+
+    // Rebuild the card HTML from the payload so day navigation updates content
+    const wrap = chartShell.querySelector('.data-card-wrap');
+    if (wrap) {
+      wrap.setAttribute('aria-label', `Ridership data card for ${card?.dateDisplay || payload.range.end}`);
+      wrap.innerHTML = buildDataCardHTML(card);
+    }
+
     if (!card || !card.fareMedia || !card.fareMedia.length) return;
 
     // Animate bar segments from 0 to their target width
@@ -636,6 +708,18 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const chart = link.dataset.chart;
     if (!chart || !chartRegistry[chart]) return;
     navigateToChart(chart);
+  });
+  // Day cycling buttons on the data card — change the end date by one
+  // available date. Uses event delegation because renderDataCard rebuilds
+  // the card HTML on every range change.
+  chartShell.addEventListener('click', (event) => {
+    const btn = event.target.closest('.dc-day-nav');
+    if (!btn) return;
+    event.preventDefault();
+    if (btn.getAttribute('aria-disabled') === 'true') return;
+    const targetDate = btn.dataset.targetDate;
+    if (!targetDate) return;
+    fetchRange(payload.range.start, targetDate).catch(console.error);
   });
   document.addEventListener('keydown', (event) => {
     if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName)) return;
