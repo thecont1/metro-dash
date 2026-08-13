@@ -194,16 +194,19 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 .site-footer .copyright{font-family:var(--font-display);font-style:italic;font-size:.8rem;font-weight:400;color:var(--ink-muted);letter-spacing:.01em;margin-top:6px}
 
 /* Tooltip (D3 hover) */
-.chart-tooltip{position:fixed;z-index:30;width:360px;min-height:120px;transform:translate(-50%,-100%);padding:0;background:var(--paper);color:var(--ink);font-size:.78rem;line-height:1.4;pointer-events:none;box-shadow:0 6px 20px rgba(10,10,10,.2);font-family:var(--font-body);border-radius:6px;border:1px solid var(--hairline);overflow:hidden}
+.chart-tooltip{position:fixed;z-index:30;width:240px;min-height:120px;transform:translate(-50%,-100%);padding:0;background:var(--paper);color:var(--ink);font-size:.78rem;line-height:1.4;pointer-events:none;box-shadow:0 6px 20px rgba(10,10,10,.2);font-family:var(--font-body);border-radius:6px;border:1px solid var(--hairline);overflow:hidden}
 .chart-tooltip .tt-head{display:flex;align-items:center;gap:8px;padding:10px 14px 6px}
 .chart-tooltip .tt-color{display:inline-block;width:12px;height:12px;border-radius:2px;flex-shrink:0;border:1px solid rgba(0,0,0,.1);vertical-align:middle;margin-right:6px}
 .chart-tooltip .tt-date{font-family:var(--font-display);font-weight:600;font-size:.88rem;color:var(--ink)}
 .chart-tooltip .tt-rides{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;padding:0 14px 6px;font-size:.82rem;display:flex;align-items:center}
 .chart-tooltip .tt-band{color:var(--muted);font-size:.68rem;padding:0 14px 4px}
-.chart-tooltip .tt-table{width:100%;border-collapse:collapse;font-size:.7rem;margin-top:2px}
-.chart-tooltip .tt-table th{padding:5px 14px 3px;color:var(--muted);font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;text-align:left;font-weight:700;border-bottom:1px solid var(--hairline)}
-.chart-tooltip .tt-table td{padding:4px 14px;color:var(--ink);font-variant-numeric:tabular-nums}
-.chart-tooltip .tt-table td:last-child{text-align:right;font-weight:600}
+.chart-tooltip .tt-table{margin-top:2px}
+.chart-tooltip .tt-thead{padding:5px 14px 3px;color:var(--muted);font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;font-weight:700;border-bottom:1px solid var(--hairline)}
+.chart-tooltip .tt-tbody{padding:2px 0 6px}
+.chart-tooltip .tt-row{display:flex;flex-direction:column;padding:4px 14px}
+.chart-tooltip .tt-row + .tt-row{border-top:1px solid var(--hairline)}
+.chart-tooltip .tt-row-label{color:var(--muted);font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;font-weight:700}
+.chart-tooltip .tt-row-value{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600;font-size:.78rem}
 .chart-tooltip .tt-missing-inline{color:var(--muted);font-style:italic;font-weight:400}
 .chart-tooltip .tt-spacer{height:8px}
 .chart-tooltip .tt-missing{color:var(--muted);font-style:italic;padding:10px 14px}

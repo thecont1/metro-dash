@@ -418,7 +418,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
             const bandColor = d.bandIndex != null ? _bandColors[d.bandIndex] : 'transparent';
             const rows = parseBreakdown(d.breakdown);
             const tableHtml = rows.length
-              ? `<table class="tt-table"><thead><tr><th>Payment method</th><th>Rides</th></tr></thead><tbody>${rows.map(r => `<tr><td>${r.label}</td><td>${r.value}</td></tr>`).join('')}</tbody></table>`
+              ? `<div class="tt-table"><div class="tt-thead"><span>Payment method</span></div><div class="tt-tbody">${rows.map(r => `<div class="tt-row"><span class="tt-row-label">${r.label}</span><span class="tt-row-value">${r.value} rides</span></div>`).join('')}</div></div>`
               : '<div class="tt-spacer"></div>';
             html = `<div class="tt-head"><span class="tt-date">${fmtDate(d.date)}</span></div><div class="tt-rides"><span class="tt-color" style="background:${bandColor}"></span>${fmtNum(d.total)} rides</div>${d.bandLabel ? `<div class="tt-band">${d.bandLabel}</div>` : ''}${tableHtml}`;
           }
