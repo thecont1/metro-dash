@@ -17,7 +17,6 @@ kill_timeout = "5s"
   HOST = "0.0.0.0"
   PORT = "3000"
   METRO_CACHE_PATH = "/app/.cache/namma-metro-ridership.csv"
-  METRO_REFRESH_SECONDS = "21600"
 
 [[mounts]]
   source = "metro_cache"

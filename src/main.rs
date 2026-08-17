@@ -20,6 +20,7 @@ use charts::Chart;
 use data::{choose_range, fetch_dataset, load_cached_dataset};
 use payload::{ChartPayload, chart_payload_for};
 use render::{QueryState, failure_view, parse_query, render_view};
+use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -60,28 +61,6 @@ async fn main() {
         dataset: Arc::new(RwLock::new(initial_dataset)),
         client,
     };
-    let refresh_state = state.clone();
-    tokio::spawn(async move {
-        let refresh_seconds = std::env::var("METRO_REFRESH_SECONDS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(21_600)
-            .max(60);
-        let mut interval = tokio::time::interval(Duration::from_secs(refresh_seconds));
-        interval.tick().await;
-        loop {
-            interval.tick().await;
-            match fetch_dataset(&refresh_state.client).await {
-                Ok(dataset) => {
-                    println!("Refreshed {} ridership records", dataset.records.len());
-                    *refresh_state.dataset.write().await = Some(dataset);
-                }
-                Err(error) => {
-                    eprintln!("Ridership refresh failed; retaining last-known-good data: {error}");
-                }
-            }
-        }
-    });
     let router = Router::builder()
         .discover()
         .app_context(state)
@@ -129,6 +108,50 @@ async fn chart_payload(cx: &Cx) -> Result<Json<ChartPayload>> {
     };
     let range = choose_range(&dataset, query.start.as_deref(), query.end.as_deref());
     Ok(Json(chart_payload_for(&dataset, range)))
+}
+
+#[derive(Serialize)]
+struct RefreshResponse {
+    row_count: usize,
+    max_date: String,
+    refreshed_at: String,
+}
+
+#[route(POST "/api/refresh")]
+async fn refresh(cx: &Cx) -> Result<Json<RefreshResponse>> {
+    let state: &AppState = topcoat::context::app_context(cx);
+
+    let expected = std::env::var("REFRESH_SECRET").unwrap_or_default();
+    if expected.is_empty() {
+        return Err(topcoat::Error::from(std::io::Error::other(
+            "refresh secret is not configured",
+        )));
+    }
+
+    let provided = parts(cx)
+        .headers
+        .get("x-refresh-secret")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if provided != expected {
+        return Err(topcoat::Error::from(std::io::Error::other(
+            "invalid refresh secret",
+        )));
+    }
+
+    let dataset = fetch_dataset(&state.client)
+        .await
+        .map_err(|error| topcoat::Error::from(std::io::Error::other(error)))?;
+    let row_count = dataset.records.len();
+    let max_date = dataset.max_date.to_string();
+    let refreshed_at = dataset.refreshed_at.clone();
+    *state.dataset.write().await = Some(dataset);
+
+    Ok(Json(RefreshResponse {
+        row_count,
+        max_date,
+        refreshed_at,
+    }))
 }
 
 #[cfg(test)]
