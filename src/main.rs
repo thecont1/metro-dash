@@ -61,6 +61,43 @@ async fn main() {
         dataset: Arc::new(RwLock::new(initial_dataset)),
         client,
     };
+
+    // Background refresh loop: periodically re-fetch the dataset so the live
+    // site shows new data without requiring a redeploy.
+    {
+        let refresh_dataset = state.dataset.clone();
+        let refresh_client = state.client.clone();
+        let interval_secs: u64 = std::env::var("METRO_REFRESH_SECONDS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(21600) // 6 hours
+            .max(60);
+        let interval = Duration::from_secs(interval_secs);
+        if interval_secs < 21600 {
+            eprintln!("Refresh interval clamped below 6h: {interval_secs}s");
+        }
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.tick().await; // skip the immediate first tick
+            loop {
+                ticker.tick().await;
+                match fetch_dataset(&refresh_client).await {
+                    Ok(dataset) => {
+                        *refresh_dataset.write().await = Some(dataset.clone());
+                        println!(
+                            "Background refresh: {} records (latest: {})",
+                            dataset.records.len(),
+                            dataset.max_date
+                        );
+                    }
+                    Err(error) => {
+                        eprintln!("Background refresh failed: {error}");
+                    }
+                }
+            }
+        });
+    }
+
     let router = Router::builder()
         .discover()
         .app_context(state)
