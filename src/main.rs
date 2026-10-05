@@ -5,8 +5,11 @@ use tokio::sync::RwLock;
 use topcoat::{
     Result,
     asset::AssetBundle,
-    context::Cx,
-    router::{Json, Router, RouterBuilderDiscoverExt, page, parts, route},
+    context::{Cx, CxBuilder},
+    router::{
+        Body, IntoResponse, Json, Next, Response, Router, RouterBuilderDiscoverExt, layer, page,
+        parts, route,
+    },
 };
 
 mod charts;
@@ -106,6 +109,76 @@ async fn main() {
     topcoat::start(router).await.unwrap();
 }
 
+/// Attach baseline security headers to every response.
+///
+/// The app is served directly from Fly.io (`namma.thecontrarian.in` is not
+/// proxied through Cloudflare), so there is no edge tier to add these for
+/// us — the origin is the only place they can come from.
+///
+/// `force_https = true` in fly.toml redirects HTTP to HTTPS, but a redirect
+/// alone still leaves the first request open to interception; HSTS is what
+/// tells the browser never to try plaintext again.
+#[layer("/")]
+async fn security_headers(cx: &mut CxBuilder, body: Body, next: Next<'_>) -> Result<Response> {
+    // An `Err` from a handler is converted into a response by the router
+    // *after* this layer returns, so propagating it with `?` would skip the
+    // headers entirely. Error responses — 404s, 500s, the failure view — are
+    // exactly the ones a prober sees most, so convert here and header both
+    // branches identically. `CxBuilder` derefs to `Cx`, which is what
+    // `IntoResponse` needs.
+    let mut response = match next.run(cx, body).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(&*cx)?,
+    };
+    let headers = response.headers_mut();
+
+    // 2 years, matching the preload-list minimum. No `preload` directive:
+    // that is a one-way door for the whole apex domain and must be a
+    // deliberate choice, not a side effect of a security pass.
+    headers.insert(
+        "strict-transport-security",
+        "max-age=63072000; includeSubDomains".parse().unwrap(),
+    );
+    headers.insert("x-content-type-options", "nosniff".parse().unwrap());
+    headers.insert("x-frame-options", "DENY".parse().unwrap());
+    headers.insert(
+        "referrer-policy",
+        "strict-origin-when-cross-origin".parse().unwrap(),
+    );
+    headers.insert(
+        "permissions-policy",
+        "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+            .parse()
+            .unwrap(),
+    );
+    // The dashboard inlines its chart script and styles (see client.rs /
+    // style.rs), so 'unsafe-inline' is load-bearing here. It also loads d3
+    // and gsap as classic <script src> tags from jsdelivr, so those two
+    // files — and nothing else — are allowed to execute. Pin the exact
+    // versioned paths rather than the whole CDN origin: a bare
+    // `https://cdn.jsdelivr.net` would let any package on that CDN run in
+    // the page. Bumping d3/gsap means updating these two URLs to match.
+    headers.insert(
+        "content-security-policy",
+        "default-src 'self'; \
+         script-src 'self' 'unsafe-inline' \
+             https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js \
+             https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js; \
+         style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data:; \
+         font-src 'self' data:; \
+         connect-src 'self'; \
+         object-src 'none'; \
+         base-uri 'none'; \
+         form-action 'self'; \
+         frame-ancestors 'none'"
+            .parse()
+            .unwrap(),
+    );
+
+    Ok(response)
+}
+
 #[page("/")]
 async fn home(cx: &Cx) -> Result {
     let state: &AppState = topcoat::context::app_context(cx);
@@ -154,6 +227,24 @@ struct RefreshResponse {
     refreshed_at: String,
 }
 
+/// Compare two byte strings in time independent of their contents.
+///
+/// A plain `!=` on secrets returns as soon as it hits the first differing
+/// byte, so response latency leaks how many leading bytes an attacker got
+/// right — enough to recover the secret one byte at a time over many
+/// requests. This folds every byte into the accumulator before deciding.
+///
+/// The length check short-circuits, which leaks only the secret's length —
+/// not its content — and that is already bounded by the configuration.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    // `fold` over every byte: no early exit, so the loop runs the same
+    // number of iterations regardless of where (or whether) they differ.
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 #[route(POST "/api/refresh")]
 async fn refresh(cx: &Cx) -> Result<Json<RefreshResponse>> {
     let state: &AppState = topcoat::context::app_context(cx);
@@ -170,7 +261,7 @@ async fn refresh(cx: &Cx) -> Result<Json<RefreshResponse>> {
         .get("x-refresh-secret")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    if provided != expected {
+    if !constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
         return Err(topcoat::Error::from(std::io::Error::other(
             "invalid refresh secret",
         )));
@@ -537,5 +628,94 @@ mod tests {
         let html = String::from_utf8_lossy(&body);
         assert!(status.is_success() || status == topcoat::router::StatusCode::OK);
         assert!(html.contains("The source data could not be loaded."));
+    }
+
+    #[test]
+    fn constant_time_eq_matches_plain_equality_across_edge_cases() {
+        // Boundaries: empty, single byte, differing lengths, and a
+        // difference in the first vs. last position — the two cases a
+        // short-circuiting comparison would treat very differently.
+        let cases: &[(&[u8], &[u8])] = &[
+            (b"", b""),
+            (b"", b"a"),
+            (b"a", b""),
+            (b"a", b"a"),
+            (b"a", b"b"),
+            (b"secret", b"secret"),
+            (b"secret", b"Secret"),  // differs at byte 0
+            (b"secret", b"secreT"),  // differs at the last byte
+            (b"secret", b"secre"),   // prefix, shorter
+            (b"secret", b"secrets"), // prefix, longer
+            (b"\x00", b"\x00"),
+            (b"\xff\x00", b"\x00\xff"), // same XOR-sum, different bytes
+        ];
+        for (a, b) in cases {
+            assert_eq!(
+                constant_time_eq(a, b),
+                a == b,
+                "constant_time_eq disagreed with == for {a:?} vs {b:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn every_response_carries_the_security_headers() {
+        // Cover both branches of the layer: a normal render AND an error
+        // response. The first version of this layer used `?`, which let the
+        // router build error responses *after* the layer had returned —
+        // every 404/500 went out bare. Only the error cases catch that.
+        let state = AppState {
+            dataset: Arc::new(RwLock::new(None)),
+            client: Client::new(),
+        };
+        let router = Router::builder()
+            .discover()
+            .app_context(state)
+            .app_context(AssetBundle::empty())
+            .build();
+
+        // "/"          -> 200 failure view (handler returns Ok)
+        // "/api/chart" -> 500 (handler returns Err: no dataset)
+        // "/nope"      -> 404 (no route matches at all)
+        for uri in ["/", "/api/chart", "/nope"] {
+            let request = topcoat::router::Request::builder()
+                .uri(uri)
+                .body(topcoat::router::Body::empty())
+                .unwrap();
+            let response = router.handle(request).await;
+            let status = response.status();
+            let headers = response.headers();
+            for name in [
+                "strict-transport-security",
+                "x-content-type-options",
+                "x-frame-options",
+                "referrer-policy",
+                "permissions-policy",
+                "content-security-policy",
+            ] {
+                assert!(
+                    headers.contains_key(name),
+                    "missing header {name} on {uri} (status {status})"
+                );
+            }
+            assert_eq!(headers["x-content-type-options"], "nosniff", "on {uri}");
+            assert_eq!(headers["x-frame-options"], "DENY", "on {uri}");
+            let csp = headers["content-security-policy"].to_str().unwrap();
+            assert!(csp.contains("frame-ancestors 'none'"), "on {uri}");
+            // The dashboard's charts are drawn by d3 and animated by gsap,
+            // both loaded as classic <script src> tags from jsdelivr. If
+            // these two URLs ever fall out of the CSP the charts stop
+            // rendering in the browser while every test here still passes —
+            // so assert them explicitly.
+            assert!(
+                csp.contains("https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"),
+                "CSP would block d3 on {uri}"
+            );
+            assert!(
+                csp.contains("https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"),
+                "CSP would block gsap on {uri}"
+            );
+            assert!(csp.contains("object-src 'none'"), "on {uri}");
+        }
     }
 }
