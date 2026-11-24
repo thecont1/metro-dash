@@ -8,10 +8,8 @@ use topcoat::{
 
 use crate::charts::{CHARTS, Chart, calendar_markup, data_card_markup, line_chart_markup};
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
-use crate::data::{
-    Dataset, DateRange, SOURCE_PAGE_URL, choose_range, last_n_months_range, record_index,
-};
-use crate::payload::chart_payload_for;
+use crate::data::{Dataset, DateRange, SOURCE_PAGE_URL, choose_range, record_index};
+use crate::payload::{chart_payload_for, range_presets};
 use crate::style::STYLE;
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -40,45 +38,17 @@ pub fn parse_query(query: &str) -> QueryState {
 }
 
 pub fn range_action_links(dataset: &Dataset, chart: Chart, current: &DateRange) -> String {
-    let actions = [
-        (
-            "last-3-months",
-            "Last 3 months",
-            last_n_months_range(dataset, 3),
-        ),
-        (
-            "last-6-months",
-            "Last 6 months",
-            last_n_months_range(dataset, 6),
-        ),
-        (
-            "last-9-months",
-            "Last 9 months",
-            last_n_months_range(dataset, 9),
-        ),
-        (
-            "last-one-year",
-            "Last one year",
-            last_n_months_range(dataset, 12),
-        ),
-        (
-            "use-all-data",
-            "Use all available data",
-            DateRange {
-                start: dataset.min_date,
-                end: dataset.max_date,
-            },
-        ),
-    ];
-    actions
+    range_presets(dataset)
         .iter()
-        .map(|(preset, label, range)| {
+        .map(|preset| {
+            let range = preset.range;
             let disabled = current.start == range.start && current.end == range.end;
             format!(
                 r#"<a class="text-button" href="/" data-preset="{preset}" data-start="{start}" data-end="{end}" data-chart="{chart}" aria-disabled="{disabled}" tabindex="{tabindex}">{label}</a>"#,
-                preset = preset,
+                preset = preset.slug,
                 start = range.start,
                 end = range.end,
+                label = preset.label,
                 chart = chart.slug(),
                 disabled = disabled,
                 tabindex = if disabled { "-1" } else { "0" },
@@ -328,6 +298,9 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                         <div>
                             <p class="eyebrow">"DATA NOTE"</p>
                             <p>(data_note)</p>
+                            <p class="compute-note" id="compute-note" hidden="hidden">
+                                "Live data is unavailable right now; the charts are showing the build-time snapshot."
+                            </p>
                             <p class="copyright">"© Mahesh Shantaram 2026"</p>
                         </div>
                     </footer>

@@ -14,11 +14,19 @@ WASM_BINDGEN_VERSION="$(awk -F'"' '/^wasm-bindgen = /{gsub("=", "", $2); print $
 
 echo "==> Building wasm compute core (wasm32-unknown-unknown)"
 rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
-cargo build --release --target wasm32-unknown-unknown --manifest-path wasm/Cargo.toml
+# Pin explicit target dirs so a caller's CARGO_TARGET_DIR cannot redirect the
+# artifacts away from the paths wasm-bindgen and the exporter read below.
+WASM_TARGET_DIR="$PWD/wasm/target"
+APP_TARGET_DIR="$PWD/target"
+CARGO_TARGET_DIR="$WASM_TARGET_DIR" \
+  cargo build --release --target wasm32-unknown-unknown --manifest-path wasm/Cargo.toml
 
-INSTALLED="$(wasm-bindgen --version | awk '{print $2}')"
+INSTALLED=""
+if command -v wasm-bindgen >/dev/null 2>&1; then
+  INSTALLED="$(wasm-bindgen --version | awk '{print $2}')"
+fi
 if [ "$INSTALLED" != "$WASM_BINDGEN_VERSION" ]; then
-  echo "wasm-bindgen CLI $INSTALLED != crate $WASM_BINDGEN_VERSION; installing matching CLI"
+  echo "wasm-bindgen CLI ${INSTALLED:-missing} != crate $WASM_BINDGEN_VERSION; installing matching CLI"
   cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
 fi
 
@@ -26,12 +34,12 @@ echo "==> Generating wasm-bindgen glue"
 mkdir -p site/wasm
 wasm-bindgen --target web \
   --out-dir site/wasm --out-name metro_wasm \
-  wasm/target/wasm32-unknown-unknown/release/metro_wasm.wasm
+  "$WASM_TARGET_DIR/wasm32-unknown-unknown/release/metro_wasm.wasm"
 
 echo "==> Building static exporter"
-cargo build --release --bin export
+CARGO_TARGET_DIR="$APP_TARGET_DIR" cargo build --release --bin export
 
 echo "==> Exporting index.html"
-./target/release/export --out site
+"$APP_TARGET_DIR/release/export" --out site
 
 echo "==> Done: site/ is ready to deploy"

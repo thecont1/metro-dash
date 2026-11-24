@@ -245,7 +245,7 @@ The client JS is a single IIFE embedded in the page. It:
 ### Static export
 
 ```sh
-cargo run --release --bin export   # writes site/index.html
+cargo run --release --bin export -- --out site   # writes site/index.html
 ```
 
 The exporter drives the real topcoat `Router` in-process, so the emitted HTML is byte-identical in structure to what the server would render.

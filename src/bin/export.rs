@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .user_agent("NammaMetro-in-Charts-export/0.1")
         .build()?;
 
-    let dataset: Dataset = match &csv_path {
+    let mut dataset: Dataset = match &csv_path {
         Some(path) => {
             let text = std::fs::read_to_string(path)?;
             let refreshed_at = chrono::Utc::now().to_rfc3339();
@@ -54,6 +54,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => fetch_dataset(&client)
             .await
             .map_err(|error| format!("failed to fetch ridership dataset: {error}"))?,
+    };
+
+    // A --csv export bundles the selected file next to index.html and points
+    // the client's live fetch at that same-origin copy, so interactive range
+    // changes recompute from the same data the snapshot was built from.
+    let bundled_csv = match &csv_path {
+        Some(path) => {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| "ridership.csv".to_string());
+            dataset.source_url = name.clone();
+            Some((path.clone(), name))
+        }
+        None => None,
     };
     println!(
         "Loaded {} ridership records (latest {})",
@@ -81,6 +97,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     std::fs::create_dir_all(&out_dir)?;
+    if let Some((source, name)) = &bundled_csv {
+        let dest = out_dir.join(name);
+        // Skip the copy when source and destination are the same file —
+        // fs::copy onto itself would truncate the CSV to zero bytes.
+        if std::fs::canonicalize(source).ok() != std::fs::canonicalize(&dest).ok() {
+            std::fs::copy(source, &dest)?;
+            println!("Bundled {} as {}", source.display(), dest.display());
+        }
+    }
     let index_path = out_dir.join("index.html");
     std::fs::write(&index_path, &body)?;
     println!("Wrote {} ({} bytes)", index_path.display(), body.len());

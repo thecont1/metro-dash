@@ -83,14 +83,38 @@ with sync_playwright() as playwright:
     check(page.locator("#chart-tooltip").is_visible(), "point focus tooltip is not visible")
     check("mean" in page.locator("#chart-tooltip").text_content(), "point tooltip lacks statistics")
 
-    # Range change through the date picker recomputes the payload.
+    # Range change through the date picker recomputes the payload. The target
+    # end date comes from the loaded dataset's own available dates, so the
+    # expectation holds even when the latest published day falls early in
+    # its month (a hard-coded day would be clamped away by choose_range).
     end_picker = page.locator('[data-date-type="end"]')
-    current_day = end_picker.locator(".date-day").input_value()
-    new_day = "15" if current_day != "15" else "16"
-    end_picker.locator(".date-day").select_option(new_day)
-    end_picker.dispatch_event("change")
+    available_dates = page.evaluate(
+        """() => {
+          const compute = window.__metroCompute;
+          if (compute) {
+            try { return JSON.parse(compute.datasetInfo()).availableDates || []; } catch (e) {}
+          }
+          const node = document.querySelector('#chart-data');
+          return node ? (JSON.parse(node.textContent).dataset?.availableDates || []) : [];
+        }"""
+    )
+    check(len(available_dates) > 1, "dataset exposes fewer than two available dates")
+    current_end = state(page).get("end")
+    alternatives = [d for d in reversed(available_dates) if d != current_end]
+    check(alternatives, "no alternative end date available in the dataset")
+    target_end = alternatives[0]
+    target_year, target_month, target_day = target_end.split("-")
+    end_picker.evaluate(
+        """(picker, [y, m, d]) => {
+          picker.querySelector('.date-year').value = y;
+          picker.querySelector('.date-month').value = String(Number(m));
+          picker.querySelector('.date-day').value = String(Number(d));
+          picker.dispatchEvent(new Event('change', { bubbles: true }));
+        }""",
+        [target_year, target_month, target_day],
+    )
     page.wait_for_function(
-        f"() => {{ const s = JSON.parse(sessionStorage.getItem('metroDashState') || '{{}}'); return (s.end || '').endsWith('-{new_day}'); }}",
+        f"() => {{ const s = JSON.parse(sessionStorage.getItem('metroDashState') || '{{}}'); return s.end === '{target_end}'; }}",
         timeout=10000,
     )
     check(state(page).get("chart") == "commute-casual", "range change reset the active chart")
