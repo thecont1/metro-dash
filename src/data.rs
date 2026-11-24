@@ -1,7 +1,10 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::collections::HashMap;
+#[cfg(feature = "server")]
+use std::{fs, path::PathBuf};
 
 use chrono::{Datelike, Duration, Months, NaiveDate, Weekday};
 use csv::StringRecord;
+#[cfg(feature = "server")]
 use reqwest::Client;
 
 pub const SOURCE_URL: &str = "https://raw.githubusercontent.com/thecont1/namma-metro-ridership-tracker/main/NammaMetro_Ridership_Dataset.csv";
@@ -152,6 +155,7 @@ pub fn record_index(dataset: &Dataset, date: NaiveDate) -> usize {
         .unwrap_or(0)
 }
 
+#[cfg(feature = "server")]
 pub async fn fetch_dataset(client: &Client) -> std::result::Result<Dataset, String> {
     let response = client
         .get(SOURCE_URL)
@@ -173,12 +177,14 @@ pub async fn fetch_dataset(client: &Client) -> std::result::Result<Dataset, Stri
     Ok(dataset)
 }
 
+#[cfg(feature = "server")]
 fn cache_path() -> PathBuf {
     std::env::var("METRO_CACHE_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_CACHE_PATH))
 }
 
+#[cfg(feature = "server")]
 fn write_dataset_cache(csv_text: &str, refreshed_at: &str) -> std::result::Result<(), String> {
     let path = cache_path();
     if let Some(parent) = path.parent() {
@@ -188,6 +194,7 @@ fn write_dataset_cache(csv_text: &str, refreshed_at: &str) -> std::result::Resul
     fs::write(path.with_extension("refreshed-at"), refreshed_at).map_err(|error| error.to_string())
 }
 
+#[cfg(feature = "server")]
 pub fn load_cached_dataset() -> std::result::Result<Dataset, String> {
     let path = cache_path();
     let csv_text = fs::read_to_string(&path).map_err(|error| error.to_string())?;

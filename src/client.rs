@@ -27,6 +27,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let dates = payload.dataset?.availableDates || (document.querySelector('.range-controls')?.dataset.availableDates || '').split(',').filter(Boolean);
   if (!dates.length) return;
 
+  let payloadDirty = false;
   let rangeTimer;
 
   const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true };
@@ -637,11 +638,28 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     else renderLine(animate);
   };
 
+  // The static site ships a wasm compute core; when present, range changes
+  // are computed locally from the CSV fetched at boot. The /api/chart
+  // endpoint remains the fallback for the self-hosted server build.
+  const wasmPayload = (start, end) => {
+    const compute = window.__metroCompute;
+    if (!compute) return null;
+    try {
+      return JSON.parse(compute.chartPayload(start, end));
+    } catch (error) {
+      console.warn('wasm chart payload failed', error);
+      return null;
+    }
+  };
   const fetchRange = async (start, end, {animate = true} = {}) => {
-    const params = new URLSearchParams({start, end});
-    const response = await fetch(`/api/chart?${params.toString()}`, {headers: {'Accept': 'application/json'}});
-    if (!response.ok) throw new Error(`chart payload failed: ${response.status}`);
-    const nextPayload = await response.json();
+    let nextPayload = wasmPayload(start, end);
+    if (!nextPayload) {
+      const params = new URLSearchParams({start, end});
+      const response = await fetch(`/api/chart?${params.toString()}`, {headers: {'Accept': 'application/json'}});
+      if (!response.ok) throw new Error(`chart payload failed: ${response.status}`);
+      nextPayload = await response.json();
+    }
+    payloadDirty = true;
     syncControls(nextPayload);
     updateUrl({start: nextPayload.range.start, end: nextPayload.range.end});
     renderActiveChart(animate);
@@ -771,6 +789,42 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   // The URL is always "/". Each page load resets to the default data-card
   // view so the latest datapoint is shown.
+
+  // Boot the wasm compute core: fetch the canonical CSV straight from
+  // GitHub (the source sends CORS `*`), load it into wasm memory, and —
+  // when it is newer than the SSR snapshot embedded above — adopt a fresh
+  // default payload so visitors see live data without a redeploy. If the
+  // user already touched a control, only the compute path is upgraded;
+  // their in-flight range is left alone.
+  const bootCompute = async () => {
+    try {
+      const compute = await import('/wasm/metro_wasm.js');
+      await compute.default();
+      const sourceUrl = payload.dataset?.sourceUrl;
+      if (!sourceUrl) return;
+      const response = await fetch(sourceUrl, {headers: {Accept: 'text/csv'}});
+      if (!response.ok) throw new Error(`dataset fetch failed: ${response.status}`);
+      const info = JSON.parse(compute.loadDataset(await response.text(), new Date().toISOString()));
+      window.__metroCompute = compute;
+      const embedded = payload.dataset || {};
+      const changed = info.maxDate !== embedded.maxDate || info.rowCount !== embedded.rowCount;
+      if (!changed) return;
+      // New rows only ever append, so existing date indices stay valid;
+      // grow the slider domain even if the user already moved a control.
+      dates = info.availableDates || dates;
+      startSlider.max = `${dates.length - 1}`;
+      endSlider.max = `${dates.length - 1}`;
+      if (!payloadDirty && D3) {
+        const fresh = JSON.parse(compute.chartPayload('', ''));
+        syncControls(fresh);
+        updateUrl({start: fresh.range.start, end: fresh.range.end});
+        renderActiveChart(false);
+      }
+    } catch (error) {
+      console.warn('local chart compute unavailable; using embedded snapshot', error);
+    }
+  };
+  bootCompute();
 
   if (D3) {
     syncControls(payload);

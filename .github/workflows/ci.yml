@@ -20,7 +20,7 @@ jobs:
         with:
           toolchain: 1.95
           components: rustfmt, clippy
-          targets: x86_64-unknown-linux-gnu
+          targets: x86_64-unknown-linux-gnu, wasm32-unknown-unknown
 
       - name: Cache cargo registry + build artifacts
         uses: Swatinem/rust-cache@v2
@@ -39,6 +39,45 @@ jobs:
 
       - name: cargo test
         run: cargo test --all-targets
+
+      - name: cargo check (wasm32, no server feature)
+        run: cargo check --no-default-features --target wasm32-unknown-unknown
+
+  wasm:
+    name: wasm crate fmt + clippy + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            wasm -> wasm/target
+            vendor/topcoat -> target
+          cache-on-failure: true
+          key: ci-wasm-${{ hashFiles('Cargo.lock', 'wasm/Cargo.lock', 'vendor/topcoat/Cargo.lock') }}
+
+      - name: cargo fmt --check (wasm crate)
+        working-directory: wasm
+        run: cargo fmt --check
+
+      - name: cargo clippy (wasm crate)
+        working-directory: wasm
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test (wasm crate)
+        working-directory: wasm
+        run: cargo test
 
   smoke:
     name: Docker build smoke

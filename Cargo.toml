@@ -3,11 +3,29 @@ name = "metro-dash"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["server"]
+# The topcoat/reqwest/tokio stack is only needed to serve HTTP. The library
+# surface used by the wasm compute crate (data/charts/payload) must compile
+# without it, so consumers can depend on this crate with
+# `default-features = false`.
+server = ["dep:topcoat", "dep:reqwest", "dep:tokio"]
+
 [dependencies]
 chrono = { version = "0.4.41", features = ["serde"] }
 csv = "1.4.0"
-reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync"] }
-topcoat = { version = "0.3.1", path = "vendor/topcoat" }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+topcoat = { version = "0.3.1", path = "vendor/topcoat", optional = true }
+
+[[bin]]
+name = "metro-dash"
+path = "src/main.rs"
+required-features = ["server"]
+
+[[bin]]
+name = "export"
+path = "src/bin/export.rs"
+required-features = ["server"]
