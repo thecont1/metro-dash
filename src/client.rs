@@ -21,6 +21,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const priorButton = document.querySelector('.arrow-button.prev');
   const nextButton = document.querySelector('.arrow-button.next');
   const payloadNode = document.querySelector('#chart-data');
+  const computeNote = document.getElementById('compute-note');
   if (!startPicker || !endPicker || !startSlider || !endSlider || !payloadNode || !chartShell) return;
 
   let payload = JSON.parse(payloadNode.textContent || '{}');
@@ -29,6 +30,12 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   let payloadDirty = false;
   let rangeTimer;
+  // Compute-core lifecycle: 'pending' until the wasm boot settles, 'ready'
+  // once chartPayload can answer locally, 'server' when the page ships no
+  // wasm assets (self-hosted build → /api/chart computes), 'failed' when
+  // wasm exists but the live dataset could not be loaded.
+  let computeState = 'pending';
+  let computeSettled = null;
 
   const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true };
   const chartOrder = ['data-card', 'calendar', 'commute-casual'];
@@ -152,6 +159,46 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     });
   };
 
+  // Quick-filter links carry data-start/data-end baked at render time. Every
+  // payload recomputes them (ChartPayload.presets), so re-stamp the links
+  // whenever a new payload arrives — e.g. after the live dataset is adopted.
+  const syncPresetTargets = () => {
+    const presets = payload.presets || [];
+    document.querySelectorAll('.range-actions [data-preset]').forEach((link) => {
+      const preset = presets.find((entry) => entry.slug === link.dataset.preset);
+      if (preset) {
+        link.dataset.start = preset.start;
+        link.dataset.end = preset.end;
+      }
+    });
+  };
+
+  // The year <select>s are rendered with options for the build-time dataset
+  // bounds. A live dataset can span a year the snapshot does not, which would
+  // leave setPickerValue selecting a year with no matching <option>.
+  const syncYearOptions = () => {
+    const minYear = Number((payload.dataset?.minDate || dates[0] || '').slice(0, 4)) || NaN;
+    const maxYear = Number((payload.dataset?.maxDate || dates[dates.length - 1] || '').slice(0, 4)) || NaN;
+    if (!Number.isFinite(minYear) || !Number.isFinite(maxYear) || minYear > maxYear) return;
+    [startPicker, endPicker].forEach((picker) => {
+      const select = picker.querySelector('.date-year');
+      if (!select) return;
+      const optionCount = select.options.length;
+      if (optionCount &&
+          Number(select.options[0].value) === minYear &&
+          Number(select.options[optionCount - 1].value) === maxYear) return;
+      const current = select.value;
+      select.innerHTML = '';
+      for (let year = minYear; year <= maxYear; year++) {
+        const option = document.createElement('option');
+        option.value = String(year);
+        option.textContent = String(year);
+        select.appendChild(option);
+      }
+      select.value = current;
+    });
+  };
+
   const syncControls = (nextPayload) => {
     payload = nextPayload;
     dates = payload.dataset.availableDates;
@@ -159,8 +206,10 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     endSlider.max = `${dates.length - 1}`;
     startSlider.value = payload.range.startIndex;
     endSlider.value = payload.range.endIndex;
+    syncYearOptions();
     setPickerValue(startPicker, payload.range.start);
     setPickerValue(endPicker, payload.range.end);
+    syncPresetTargets();
     updateActionLinks(payload.range.start, payload.range.end);
   };
 
@@ -651,15 +700,28 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       return null;
     }
   };
+  const showComputeNote = () => {
+    if (computeNote) computeNote.hidden = false;
+  };
   const fetchRange = async (start, end, {animate = true} = {}) => {
+    // Any scheduled range request marks the view as user-owned immediately,
+    // so a late-arriving live dataset cannot reset controls mid-interaction.
+    payloadDirty = true;
+    // Static exports have no /api/chart: hold range changes until the wasm
+    // boot settles, then compute locally — or keep the snapshot and say so.
+    if (computeState === 'pending' && computeSettled) await computeSettled;
     let nextPayload = wasmPayload(start, end);
     if (!nextPayload) {
+      if (computeState !== 'server') {
+        syncControls(payload);
+        showComputeNote();
+        return;
+      }
       const params = new URLSearchParams({start, end});
       const response = await fetch(`/api/chart?${params.toString()}`, {headers: {'Accept': 'application/json'}});
       if (!response.ok) throw new Error(`chart payload failed: ${response.status}`);
       nextPayload = await response.json();
     }
-    payloadDirty = true;
     syncControls(nextPayload);
     updateUrl({start: nextPayload.range.start, end: nextPayload.range.end});
     renderActiveChart(animate);
@@ -677,6 +739,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     setPickerValue(startPicker, start);
     setPickerValue(endPicker, end);
     updateActionLinks(start, end);
+    payloadDirty = true;
     clearTimeout(rangeTimer);
     rangeTimer = setTimeout(() => fetchRange(start, end).catch(console.error), delay);
   };
@@ -696,6 +759,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     startSlider.value = nearestIndex(start, 0);
     endSlider.value = nearestIndex(end, dates.length - 1);
     updateActionLinks(start, end);
+    payloadDirty = true;
     clearTimeout(rangeTimer);
     rangeTimer = setTimeout(() => fetchRange(start, end).catch(console.error), 0);
   };
@@ -795,19 +859,29 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   // when it is newer than the SSR snapshot embedded above — adopt a fresh
   // default payload so visitors see live data without a redeploy. If the
   // user already touched a control, only the compute path is upgraded;
-  // their in-flight range is left alone.
+  // their in-flight range is left alone. A missing /wasm/ module means the
+  // self-hosted server build, where /api/chart stays the compute path.
   const bootCompute = async () => {
+    let compute;
     try {
-      const compute = await import('/wasm/metro_wasm.js');
+      compute = await import('/wasm/metro_wasm.js');
+    } catch {
+      computeState = 'server';
+      return;
+    }
+    try {
       await compute.default();
       const sourceUrl = payload.dataset?.sourceUrl;
-      if (!sourceUrl) return;
+      if (!sourceUrl) throw new Error('dataset source URL missing');
       const response = await fetch(sourceUrl, {headers: {Accept: 'text/csv'}});
       if (!response.ok) throw new Error(`dataset fetch failed: ${response.status}`);
       const info = JSON.parse(compute.loadDataset(await response.text(), new Date().toISOString()));
       window.__metroCompute = compute;
+      computeState = 'ready';
       const embedded = payload.dataset || {};
-      const changed = info.maxDate !== embedded.maxDate || info.rowCount !== embedded.rowCount;
+      const changed = info.revision !== embedded.revision
+        || info.maxDate !== embedded.maxDate
+        || info.rowCount !== embedded.rowCount;
       if (!changed) return;
       // New rows only ever append, so existing date indices stay valid;
       // grow the slider domain even if the user already moved a control.
@@ -821,10 +895,12 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
         renderActiveChart(false);
       }
     } catch (error) {
+      computeState = 'failed';
       console.warn('local chart compute unavailable; using embedded snapshot', error);
+      showComputeNote();
     }
   };
-  bootCompute();
+  computeSettled = bootCompute();
 
   if (D3) {
     syncControls(payload);

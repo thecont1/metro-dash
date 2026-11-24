@@ -20,14 +20,14 @@ A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL rid
 ## About the data
 
 - **Source:** the canonical `NammaMetro_Ridership_Dataset.csv` published by BMRCL, pulled from GitHub.
-- **Refresh:** the browser fetches the latest CSV from GitHub on every visit — no server involved.
+- **Refresh:** the browser fetches the latest CSV from GitHub on every visit — no server involved — but only once JavaScript has loaded and initialised the WASM compute module; without it, visitors see the build-time snapshot.
 - **Missing days:** BMRCL does not publish a total every day. Those days appear as crossed cells on the calendar and are excluded from weekday averages.
 - **Percentiles:** each calendar day's colour is based on its percentile within your selected range, so the palette is relative to the dates you have chosen.
 
 ## Notes
 
 - The URL stays as `/`. The selected chart and range are kept only for the current pageview and reset on refresh, so specific views are not shareable by link.
-- The app is designed to work without JavaScript: the basic charts are rendered into the static HTML at build time, and D3/GSAP only enhance the experience when available.
+- Without JavaScript you get the landing data card only — it is rendered into the static HTML at build time. The calendar and weekday charts, chart navigation, and date-range changes all require JavaScript; D3/GSAP enhance the experience when available.
 - It respects `prefers-reduced-motion` and works on mobile.
 
 ---

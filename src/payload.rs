@@ -5,7 +5,7 @@ use crate::charts::{
     insight_line, weekday_name,
 };
 use crate::data::{
-    Dataset, DateRange, RangeSummary, RidershipRecord, SOURCE_URL, record_index, summarise,
+    Dataset, DateRange, RangeSummary, RidershipRecord, last_n_months_range, record_index, summarise,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -16,6 +16,7 @@ pub struct ChartPayload {
     pub dataset: PayloadDataset,
     pub summary: PayloadSummary,
     pub charts: PayloadCharts,
+    pub presets: Vec<PayloadPreset>,
     pub definitions: Vec<ChartDefinitionPayload>,
 }
 
@@ -46,9 +47,72 @@ pub struct PayloadDataset {
     pub row_count: usize,
     pub refreshed_at: String,
     pub available_dates: Vec<String>,
-    /// Where the canonical CSV lives. The static-site client fetches it
-    /// directly so range recomputation never needs a server round-trip.
-    pub source_url: &'static str,
+    /// Fingerprint of the source CSV; lets the client detect in-place data
+    /// corrections that leave `max_date`/`row_count` untouched.
+    pub revision: String,
+    /// Where the client fetches the CSV for live recomputation — the
+    /// canonical GitHub URL, or a same-origin copy bundled by `export --csv`.
+    pub source_url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PayloadPreset {
+    pub slug: &'static str,
+    pub label: &'static str,
+    pub start: String,
+    pub end: String,
+}
+
+/// A named quick-filter range ("Last 3 months", …, "Use all available data").
+#[derive(Debug, Clone, Copy)]
+pub struct RangePreset {
+    pub slug: &'static str,
+    pub label: &'static str,
+    pub range: DateRange,
+}
+
+/// Quick-filter targets computed from the active dataset. Shared by the SSR
+/// range-action links and every JSON payload so the client can refresh the
+/// links' `data-start`/`data-end` whenever it adopts a newer dataset.
+pub fn range_presets(dataset: &Dataset) -> Vec<RangePreset> {
+    [
+        (
+            "last-3-months",
+            "Last 3 months",
+            last_n_months_range(dataset, 3),
+        ),
+        (
+            "last-6-months",
+            "Last 6 months",
+            last_n_months_range(dataset, 6),
+        ),
+        (
+            "last-9-months",
+            "Last 9 months",
+            last_n_months_range(dataset, 9),
+        ),
+        (
+            "last-one-year",
+            "Last one year",
+            last_n_months_range(dataset, 12),
+        ),
+        (
+            "use-all-data",
+            "Use all available data",
+            DateRange {
+                start: dataset.min_date,
+                end: dataset.max_date,
+            },
+        ),
+    ]
+    .iter()
+    .map(|(slug, label, range)| RangePreset {
+        slug,
+        label,
+        range: *range,
+    })
+    .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -161,7 +225,8 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 .iter()
                 .map(|record| record.date.to_string())
                 .collect(),
-            source_url: SOURCE_URL,
+            revision: dataset.revision.to_string(),
+            source_url: dataset.source_url.clone(),
         },
         summary: PayloadSummary {
             calendar_days: summary.calendar_days,
@@ -194,6 +259,15 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 insight: insight_line(&summary),
             },
         },
+        presets: range_presets(dataset)
+            .iter()
+            .map(|preset| PayloadPreset {
+                slug: preset.slug,
+                label: preset.label,
+                start: preset.range.start.to_string(),
+                end: preset.range.end.to_string(),
+            })
+            .collect(),
         definitions: CHARTS
             .iter()
             .map(|definition| ChartDefinitionPayload {

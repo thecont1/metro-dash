@@ -43,6 +43,13 @@ pub struct Dataset {
     pub duplicate_count: usize,
     pub field_mapping: FieldMapping,
     pub refreshed_at: String,
+    /// Fingerprint of the source CSV text. Unlike `max_date`/`row_count` it
+    /// also changes when upstream corrects existing rows in place.
+    pub revision: u64,
+    /// URL the client fetches for live recomputation. Normally the canonical
+    /// GitHub CSV; the static exporter overrides it when `--csv` bundles a
+    /// local copy next to `index.html`.
+    pub source_url: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -243,7 +250,20 @@ pub fn parse_dataset(csv_text: &str, refreshed_at: String) -> std::result::Resul
         duplicate_count,
         field_mapping: mapping,
         refreshed_at,
+        revision: content_revision(csv_text),
+        source_url: SOURCE_URL.to_string(),
     })
+}
+
+/// FNV-1a 64-bit fingerprint of the raw CSV text. Hand-rolled (rather than
+/// `DefaultHasher`) so host and wasm builds produce identical values.
+fn content_revision(csv_text: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in csv_text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 impl FieldMapping {

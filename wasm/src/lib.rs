@@ -38,6 +38,7 @@ fn dataset_info_json(dataset: &Dataset) -> String {
             .map(|record| record.date.to_string())
             .collect::<Vec<_>>(),
         "refreshedAt": dataset.refreshed_at.as_str(),
+        "revision": dataset.revision.to_string(),
         "invalidDateCount": dataset.invalid_date_count,
         "duplicateCount": dataset.duplicate_count,
     })
@@ -74,7 +75,8 @@ fn chart_payload_inner(start: &str, end: &str) -> Result<String, String> {
 /// `refreshed_at` is an RFC 3339 timestamp supplied by the caller (the
 /// browser's fetch time) because wasm has no clock of its own. Returns a
 /// JSON object describing the dataset (`minDate`, `maxDate`, `rowCount`,
-/// `availableDates`, `refreshedAt`, `invalidDateCount`, `duplicateCount`).
+/// `availableDates`, `refreshedAt`, `revision`, `invalidDateCount`,
+/// `duplicateCount`).
 #[wasm_bindgen(js_name = loadDataset)]
 pub fn load_dataset(csv_text: &str, refreshed_at: &str) -> Result<String, JsValue> {
     load_dataset_inner(csv_text, refreshed_at).map_err(|error| js_sys::Error::new(&error).into())

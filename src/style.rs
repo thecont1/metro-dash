@@ -191,6 +191,8 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 .site-footer{padding:8px 0 0;border-top:1px solid var(--hairline);color:var(--muted);font-size:.66rem;line-height:1.4;display:flex;justify-content:space-between;align-items:flex-end;gap:18px}
 .site-footer p{margin-bottom:3px}
 .site-footer .chart-method{color:var(--muted);font-size:.7rem;line-height:1.45;border-left:2px solid var(--accent);padding:2px 0 2px 9px;max-width:62ch}
+.site-footer .compute-note{color:var(--muted);font-size:.7rem;line-height:1.45;border-left:2px solid var(--accent);padding:2px 0 2px 9px;max-width:62ch}
+.site-footer .compute-note[hidden]{display:none}
 .site-footer .copyright{font-family:var(--font-display);font-style:italic;font-size:.8rem;font-weight:400;color:var(--ink-muted);letter-spacing:.01em;margin-top:6px}
 
 /* Tooltip (D3 hover) */
