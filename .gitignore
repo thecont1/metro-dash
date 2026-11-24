@@ -4,3 +4,7 @@
 .env
 /vendor/topcoat/target/
 /vendor/topcoat-cli/target/
+wasm/target/
+/site/index.html
+/site/wasm/
+/.playwright-mcp/
