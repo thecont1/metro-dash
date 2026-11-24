@@ -2,52 +2,78 @@
 
 ## Overview
 
-**NammaMetro in Charts** is a data-analytical view into Bangalore's metro ridership data, designed for non-technical users who want to explore visualisations. The app fetches a CSV dataset from a public GitHub repository, computes statistics server-side, and renders interactive charts with D3.js progressive enhancement over an SSR fallback.
+**NammaMetro in Charts** is a data-analytical view into Bangalore's metro ridership data, designed for non-technical users who want to explore visualisations. The app is a static site: the HTML is rendered at build time by the same Rust code that powers the compute, and the chart math runs in the browser via a Rust→WASM core — one source of truth for all statistics. The dataset CSV is fetched live from a public GitHub repository on every page load.
 
 ## Product vision
 
 - **Audience**: Non-technical public-data consumers
 - **Scale**: Three interactive chart slides
-- **Data source**: Fresh CSV pulled from GitHub on startup, with a background refresh loop
-- **Interaction model**: One chart per view; left/right arrows navigate between charts; date range controls recalculate all visualisations
+- **Data source**: Fresh CSV pulled from GitHub by the browser on each page load
+- **Interaction model**: One chart per view; left/right arrows navigate between charts; date range controls recalculate all visualisations locally in WASM
 - **Accessibility**: SSR fallback for every chart, keyboard navigation, ARIA labels, reduced-motion support
 - **Clean URL**: The URL is always `/`; chart and range state live in `sessionStorage` for the current pageview only and reset on refresh
 
 ## Live app
 
-<https://metrodash.fly.dev>
+<https://namma.thecontrarian.in>
+
+(Previously served from Fly.io at <https://metrodash.fly.dev>; the static site is the primary deployment, the Rust server binary remains available for self-hosting.)
 
 ## Architecture
 
 ```
-Request ──▶ topcoat router ──▶ home() handler
-                                   │
-                    ┌──────────────┼──────────────┐
-                    ▼              ▼              ▼
-              fetch_dataset   choose_range   render_view
-                    │              │              │
-                    ▼              ▼              ├─▶ SSR HTML (view! macro)
-              parse_dataset   summarise          │   ├─ CSS (embedded)
-                    │              │              │   ├─ JSON payload (embedded)
-                    ▼              ▼              │   ├─ D3 + GSAP (CDN)
-              Dataset ◀────── RangeSummary       │   └─ Client JS (embedded)
-                    │                             │
-                    └─────────────────────────────┘
-                                  │
-                    Client fetches /api/chart on date change
-                                  │
-                                  ▼
-                         Re-render with D3
+Build time (scripts/build-site.sh)
+──────────────────────────────────
+  cargo build --release --bin export
+        │
+        ▼
+  export bin ──▶ Router::handle(GET /) ──▶ fetch_dataset (GitHub CSV)
+        │                                    │
+        │                                    ▼
+        │                              parse_dataset → Dataset
+        │                                    │
+        │                                    ▼
+        │                              choose_range → ChartPayload
+        │                                    │
+        ▼                                    ▼
+  site/index.html  ◀── SSR HTML + embedded JSON + CSS/JS
+  site/wasm/metro_wasm.{js,wasm}  ◀── wasm-bindgen glue (compute core)
+  site/_headers                 ◀── security headers for Pages
+
+Runtime (browser, zero VM)
+───────────────────────────
+  Page load ──▶ fetch CSV from SOURCE_URL (raw.githubusercontent.com)
+        │
+        ▼
+  dynamic-import metro_wasm.js → init() → loadDataset(csv, now)
+        │
+        ▼
+  Dataset held in WASM memory; embedded payload renders first chart
+        │
+        ▼
+  Date range change ──▶ chartPayload(start, end) locally in WASM
+        │
+        ▼
+  Re-render with D3   (fallback: GET /api/chart on self-hosted server)
 ```
 
-### Request flow
+### Request flow (static deployment)
 
-1. **Page load (`GET /`)**: Server fetches (or serves cached) dataset, computes the requested date range and summary, renders full HTML with embedded JSON payload and SSR chart markup.
-2. **Date range change (`GET /api/chart`)**: Client JS calls the JSON API, receives a fresh `ChartPayload`, updates sliders/date pickers, and re-renders the active chart with D3.
-3. **Chart navigation**: Left/right arrows or arrow keys switch the active chart client-side. The state is stored in `sessionStorage`, not the URL.
-4. **Page refresh**: `sessionStorage` is cleared at script start, so the app always resets to the default data-card view with the latest datapoint.
+1. **Page load (`GET /`)**: Cloudflare Pages serves the pre-rendered `index.html`, which embeds the build-time `ChartPayload`, SSR chart markup, CSS, client JS, and pointers to the WASM module.
+2. **Boot**: Client JS imports `wasm/metro_wasm.js`, fetches the CSV from `payload.dataset.sourceUrl`, and calls `loadDataset`. `datasetInfo()` refreshes the "data updated" timestamp to the fetch time.
+3. **Date range change**: Client calls `chartPayload(start, end)` in WASM — the same Rust functions the server API uses — and re-renders with D3. No network call.
+4. **Chart navigation**: Left/right arrows or arrow keys switch the active chart client-side. The state is stored in `sessionStorage`, not the URL.
+5. **Page refresh**: `sessionStorage` is cleared at script start, so the app always resets to the default data-card view with the latest datapoint.
+
+### Request flow (self-hosted server, `server` feature)
+
+1. `GET /` — topcoat handler renders HTML with a live dataset (fetched at startup, refreshed every `METRO_REFRESH_SECONDS`).
+2. `GET /api/chart?start&end` — JSON payload recomputed in-process.
+3. `POST /api/refresh` — webhook that reloads the dataset (used by the sister repo's data workflow before the static migration; retained for self-hosters).
 
 ## Framework choice: [Topcoat](https://github.com/tokio-rs/topcoat/)
+
+Topcoat powers the self-hosted server build and the build-time static exporter (`src/bin/export.rs` drives the same `Router` in-process). The production static site needs no server framework at runtime — chart math runs in the browser via the `wasm/` crate.
 
 ### Why Topcoat works for this app
 
@@ -76,32 +102,45 @@ Request ──▶ topcoat router ──▶ home() handler
 
 ```
 src/
-├── main.rs       Entry point, route handlers, AppState, integration tests
+├── lib.rs        Crate root: module declarations, re-exports (wasm-compatible)
+├── main.rs       Thin server entry point (requires `server` feature)
+├── server.rs     topcoat handlers, AppState, security headers, refresh loop
+├── bin/
+│   └── export.rs Static exporter: drives Router::handle() to write site/index.html
 ├── data.rs       Data types, CSV parsing, dataset loading, statistics
 ├── charts.rs     Chart registry, SSR markup generation, formatting helpers
-├── payload.rs    JSON payload types and construction for /api/chart
+├── payload.rs    JSON payload types and construction for /api/chart and WASM
 ├── render.rs     View rendering, query parsing, date range logic, date picker
 ├── client.rs     Client-side JavaScript (embedded constant)
 └── style.rs      CSS (embedded constant)
+
+wasm/
+├── Cargo.toml    cdylib crate, depends on metro-dash with default-features = false
+└── src/lib.rs    wasm-bindgen exports: loadDataset, datasetInfo, chartPayload
 ```
 
 ### Dependency graph
 
 ```
-main.rs ──▶ data.rs, charts.rs, payload.rs, render.rs, client.rs, style.rs
+lib (no default features) ──▶ data.rs, charts.rs, payload.rs, render.rs, client.rs, style.rs
+server.rs (feature = "server") ──▶ lib + topcoat, reqwest, tokio
+bin/export.rs ──▶ server.rs (uses the same router the binary serves)
+wasm crate ──▶ lib (default-features = false)
 render.rs ──▶ data.rs, charts.rs, payload.rs, client.rs, style.rs
 payload.rs ──▶ data.rs, charts.rs
 charts.rs ──▶ data.rs
 ```
 
+The `server` cargo feature (on by default) gates `topcoat`, `reqwest`, and `tokio` plus the filesystem/network parts of `data.rs`. `cargo check --no-default-features --target wasm32-unknown-unknown` verifies the compute core stays wasm-clean.
+
 ## Data pipeline
 
 ### Loading
 
-1. On startup, `fetch_dataset()` pulls CSV from `SOURCE_URL` via reqwest
-2. If the fetch fails, `load_cached_dataset()` reads from `.cache/`
-3. A background task refreshes every 6 hours (configurable via `METRO_REFRESH_SECONDS`)
-4. The dataset is stored in `Arc<RwLock<Option<Dataset>>>` for shared access
+Two paths feed the same `Dataset` type:
+
+- **Static site (primary)**: the export binary calls `fetch_dataset()` once at build time for the embedded payload; at runtime the browser fetches `SOURCE_URL` itself (the CSV endpoint sends `Access-Control-Allow-Origin: *`) and hands it to `wasm::load_dataset()`.
+- **Self-hosted server (`server` feature)**: on startup `fetch_dataset()` pulls the CSV via reqwest; on failure `load_cached_dataset()` reads `.cache/`; a background task refreshes every `METRO_REFRESH_SECONDS` and stores the result in `Arc<RwLock<Option<Dataset>>>`.
 
 ### Parsing
 
@@ -156,13 +195,14 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 The client JS is a single IIFE embedded in the page. It:
 
 1. Reads the JSON payload from `#chart-data`
-2. Renders the active chart with D3 (data card needs no D3 enhancement)
-3. Syncs date range controls (sliders ↔ date pickers)
-4. Fetches fresh data from `/api/chart` on date range change
-5. Keeps chart and range state in `sessionStorage`
-6. Handles keyboard navigation (arrow keys for chart switching)
-7. Resets `sessionStorage` on every page load so the user always lands on the latest datapoint
-8. Respects `prefers-reduced-motion`
+2. Dynamically imports `wasm/metro_wasm.js`, fetches the CSV from `payload.dataset.sourceUrl`, and calls `loadDataset` — the dataset then lives in WASM memory
+3. Renders the active chart with D3 (data card needs no D3 enhancement)
+4. Syncs date range controls (sliders ↔ date pickers)
+5. On date range change, calls `chartPayload(start, end)` locally in WASM; if the WASM core is unavailable (e.g. self-hosted server build), falls back to `GET /api/chart`
+6. Keeps chart and range state in `sessionStorage`
+7. Handles keyboard navigation (arrow keys for chart switching)
+8. Resets `sessionStorage` on every page load so the user always lands on the latest datapoint
+9. Respects `prefers-reduced-motion`
 
 ### Progressive enhancement
 
@@ -187,7 +227,7 @@ The client JS is a single IIFE embedded in the page. It:
 
 ## Testing
 
-### Rust unit tests (`#[cfg(test)] mod tests`)
+### Rust unit tests (`src/tests.rs`, `#[cfg(all(test, feature = "server"))]`)
 
 - CSV parsing: aliases, numeric values, dates, duplicates, missing components
 - Statistics: quantile interpolation, sample SD, weekday ordering
@@ -195,7 +235,20 @@ The client JS is a single IIFE embedded in the page. It:
 - Calendar markup: leap day, partial weeks, month boundaries
 - Payload: chart readiness, JSON serialization
 - Client script: presence of key functions
-- Integration: `/api/chart` response, failure view rendering
+- Integration: `/api/chart` response, failure view rendering, security headers
+
+### WASM crate tests (`wasm/src/lib.rs`)
+
+- `load_dataset` → `dataset_info` / `chart_payload` round-trip against the shared CSV fixture
+- Default-range behaviour and error-before-load paths
+
+### Static export
+
+```sh
+cargo run --release --bin export   # writes site/index.html
+```
+
+The exporter drives the real topcoat `Router` in-process, so the emitted HTML is byte-identical in structure to what the server would render.
 
 ### E2E tests (`tests/e2e.py`)
 
@@ -244,7 +297,7 @@ Header matching is case-insensitive and ignores spaces and punctuation. The curr
 | Group tickets | `Group Ticket` | `group tickets` |
 | Supplied daily total | not currently present | `Total Ridership`, `Total Daily Ridership`, `Total Journeys`, `Total` |
 
-The mapping is explicit in `FieldMapping::from_headers` in `src/main.rs`.
+The mapping is explicit in `FieldMapping::from_headers` in `src/data.rs`.
 
 ## Methodology
 
@@ -286,7 +339,27 @@ Standard deviation is unavailable for `n < 2`. Missing series observations rende
 
 ## Deployment
 
-### Docker
+### Cloudflare Pages (primary — zero VM)
+
+The production deployment is a static site. Build and publish:
+
+```sh
+bash scripts/build-site.sh   # produces site/ (index.html + wasm/ + _headers)
+```
+
+Deploy `site/` to a Cloudflare Pages project (direct upload or git integration). `site/_headers` mirrors the security headers the Rust server sends — including a CSP with `'wasm-unsafe-eval'` (required for WASM compilation) and `connect-src` allowing `raw.githubusercontent.com` (the live CSV fetch).
+
+There is no server, no volume, and no refresh webhook: every page load fetches the CSV straight from GitHub, so data is as fresh as the sister repo's last push. The `POST /api/refresh` step was removed from `namma-metro-ridership-tracker`'s workflow accordingly.
+
+A good release gate is:
+
+1. `cargo fmt --check`
+2. `cargo clippy --all-targets --all-features -- -D warnings`
+3. `cargo test --all-targets` and `cargo test` in `wasm/`
+4. `bash scripts/build-site.sh`
+5. Smoke test the deployed URL (charts render, console clean, range slider recomputes)
+
+### Docker (self-hosted server)
 
 A multi-stage `Dockerfile` builds a release binary and runs it as a non-root user under `tini`. The container exposes port 3000 and includes a health check against `/`.
 
@@ -301,11 +374,9 @@ docker run --rm -p 3000:3000 \
 
 Any OCI host works if it supplies outbound HTTPS access to GitHub, sets `HOST=0.0.0.0`, routes to `PORT`, and optionally mounts persistent storage at `/app/.cache`.
 
-### Fly.io
+### Fly.io (self-hosted server, legacy)
 
-The included `fly.toml` deploys to Fly.io under the application name `metrodash`, with the primary machine region set to `sin` (Singapore) and `min_machines_running = 1` so a random visitor never hits a cold container.
-
-A reusable named volume `metro_cache` is mounted at `/app/.cache` so the last-known-good CSV survives deploys and machine restarts.
+`fly.toml` still deploys the Rust server to Fly.io (app `metrodash`, region `sin`, `min_machines_running = 1`) for anyone who wants the always-on `/api/chart` + `/api/refresh` behaviour. The volume `metro_cache` is mounted at `/app/.cache` so the last-known-good CSV survives deploys.
 
 ```sh
 # One-time app + volume setup, run from a machine that has the fly CLI
@@ -336,6 +407,7 @@ Requirements:
 
 - Rust 1.95 or newer (required by Topcoat 0.3.1)
 - `topcoat-cli` 0.3.x (`cargo install topcoat-cli`)
+- `wasm32-unknown-unknown` target + `wasm-bindgen-cli` matching the `wasm-bindgen` crate version (only needed for the static build: `rustup target add wasm32-unknown-unknown && cargo install wasm-bindgen-cli --version 0.2.130`)
 
 ```sh
 cargo test --all-targets
@@ -344,11 +416,18 @@ topcoat dev
 
 Open <http://127.0.0.1:3000>. Topcoat binds to `127.0.0.1:3000` by default.
 
-For a production-style local run:
+For a production-style local run of the server:
 
 ```sh
 cargo build --release
 HOST=127.0.0.1 PORT=3000 ./target/release/metro-dash
+```
+
+For the static site:
+
+```sh
+bash scripts/build-site.sh
+python3 -m http.server -d site 3000   # or any static file server
 ```
 
 For a note on the `topcoat dev` crash caused by shared foreground process groups, see [TOPCOAT-DEV-CRASH.md](TOPCOAT-DEV-CRASH.md).
@@ -360,4 +439,5 @@ For a note on the `topcoat dev` crash caused by shared foreground process groups
 3. **Sample SD (n−1)**: Standard for descriptive statistics; matches what most users expect from spreadsheet functions.
 4. **Missing ≠ zero**: Blank source values remain `None` so averages and sums don't undercount. `sum_complete()` propagates `None` if any component is missing.
 5. **Clean URL**: The URL is always `/` and state is `sessionStorage`-only. This removes shareable permalinks but keeps navigation clean for a live-updating dataset.
-6. **Module split before chart 3**: Prevents the single file from becoming unmaintainable as more charts are added.
+6. **Rust→WASM compute core**: The chart math lives once in Rust, compiled both for the server (`server` feature) and for the browser (`wasm/` crate). One source of truth means the cargo test suite validates exactly the code that runs in production — no TypeScript port to drift.
+7. **Module split before chart 3**: Prevents the single file from becoming unmaintainable as more charts are added.
