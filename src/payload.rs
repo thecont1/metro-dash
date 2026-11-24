@@ -4,7 +4,9 @@ use crate::charts::{
     CHARTS, band_index, band_label, fare_media_breakdown, format_number_full, format_range,
     insight_line, weekday_name,
 };
-use crate::data::{Dataset, DateRange, RangeSummary, RidershipRecord, record_index, summarise};
+use crate::data::{
+    Dataset, DateRange, RangeSummary, RidershipRecord, SOURCE_URL, record_index, summarise,
+};
 use chrono::{Datelike, NaiveDate, Weekday};
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +46,9 @@ pub struct PayloadDataset {
     pub row_count: usize,
     pub refreshed_at: String,
     pub available_dates: Vec<String>,
+    /// Where the canonical CSV lives. The static-site client fetches it
+    /// directly so range recomputation never needs a server round-trip.
+    pub source_url: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,6 +161,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 .iter()
                 .map(|record| record.date.to_string())
                 .collect(),
+            source_url: SOURCE_URL,
         },
         summary: PayloadSummary {
             calendar_days: summary.calendar_days,
