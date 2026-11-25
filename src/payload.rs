@@ -1,11 +1,12 @@
 use serde::Serialize;
 
 use crate::charts::{
-    CHARTS, band_index, band_label, fare_media_breakdown, format_number_full, format_range,
-    insight_line, weekday_name,
+    CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown, format_number_full,
+    format_range, insight_line, weekday_name,
 };
 use crate::data::{
-    Dataset, DateRange, RangeSummary, RidershipRecord, last_n_months_range, record_index, summarise,
+    BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, Dataset, DateRange, RangeSummary, RidershipRecord,
+    WeekdayBaselinePoint, last_n_months_range, record_index, summarise, weekday_baseline_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -136,6 +137,41 @@ pub struct PayloadCharts {
     pub data_card: DataCardPayload,
     pub calendar: CalendarPayload,
     pub commute_casual: CommuteCasualPayload,
+    pub weekday_baseline: WeekdayBaselinePayload,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeekdayBaselinePayload {
+    pub window: usize,
+    pub min_observations: usize,
+    pub points: Vec<WeekdayBaselinePointPayload>,
+    pub high_count: usize,
+    pub low_count: usize,
+    pub insufficient_count: usize,
+    pub insight: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeekdayBaselinePointPayload {
+    pub date: String,
+    pub weekday: &'static str,
+    pub weekday_short: &'static str,
+    pub total: f64,
+    pub total_label: String,
+    pub lower_quartile: Option<f64>,
+    pub lower_quartile_label: Option<String>,
+    pub median: Option<f64>,
+    pub median_label: Option<String>,
+    pub upper_quartile: Option<f64>,
+    pub upper_quartile_label: Option<String>,
+    pub baseline_n: usize,
+    pub delta_pct: Option<f64>,
+    pub delta_pct_label: Option<String>,
+    pub status: &'static str,
+    pub status_label: &'static str,
+    pub tooltip: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -207,6 +243,8 @@ pub struct WeekdayPointPayload {
 
 pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let summary = summarise(dataset, range);
+    let baseline_points = weekday_baseline_series(dataset, range);
+    let weekday_baseline = weekday_baseline_payload(&baseline_points);
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -258,6 +296,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 ],
                 insight: insight_line(&summary),
             },
+            weekday_baseline,
         },
         presets: range_presets(dataset)
             .iter()
@@ -277,6 +316,83 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 method: definition.method,
             })
             .collect(),
+    }
+}
+
+fn weekday_baseline_payload(points: &[WeekdayBaselinePoint]) -> WeekdayBaselinePayload {
+    WeekdayBaselinePayload {
+        window: BASELINE_WINDOW,
+        min_observations: BASELINE_MIN_OBSERVATIONS,
+        points: points.iter().map(baseline_point_payload).collect(),
+        high_count: points
+            .iter()
+            .filter(|point| point.status == crate::data::BaselineStatus::High)
+            .count(),
+        low_count: points
+            .iter()
+            .filter(|point| point.status == crate::data::BaselineStatus::Low)
+            .count(),
+        insufficient_count: points
+            .iter()
+            .filter(|point| point.status == crate::data::BaselineStatus::Insufficient)
+            .count(),
+        insight: baseline_insight(points),
+    }
+}
+
+fn baseline_point_payload(point: &WeekdayBaselinePoint) -> WeekdayBaselinePointPayload {
+    let delta_pct = point
+        .median
+        .filter(|median| *median != 0.0)
+        .map(|median| (point.total - median) / median * 100.0);
+    let weekday_short = match point.weekday {
+        Weekday::Mon => "Mon",
+        Weekday::Tue => "Tue",
+        Weekday::Wed => "Wed",
+        Weekday::Thu => "Thu",
+        Weekday::Fri => "Fri",
+        Weekday::Sat => "Sat",
+        Weekday::Sun => "Sun",
+    };
+    let tooltip = match (point.median, point.lower_quartile, point.upper_quartile) {
+        (Some(median), Some(lower), Some(upper)) => format!(
+            "{}: {} total — {}; median {}; IQR {}–{}; delta {}; n {}",
+            point.date.format("%a %-d %b %Y"),
+            format_number_full(point.total),
+            point.status.label().to_lowercase(),
+            format_number_full(median),
+            format_number_full(lower),
+            format_number_full(upper),
+            delta_pct
+                .map(|value| format!("{value:+.1}%"))
+                .unwrap_or_else(|| "—".to_string()),
+            point.baseline_n
+        ),
+        _ => format!(
+            "{}: {} total; baseline unavailable (n {})",
+            point.date.format("%a %-d %b %Y"),
+            format_number_full(point.total),
+            point.baseline_n
+        ),
+    };
+    WeekdayBaselinePointPayload {
+        date: point.date.to_string(),
+        weekday: weekday_name(point.weekday),
+        weekday_short,
+        total: point.total,
+        total_label: format_number_full(point.total),
+        lower_quartile: point.lower_quartile,
+        lower_quartile_label: point.lower_quartile.map(format_number_full),
+        median: point.median,
+        median_label: point.median.map(format_number_full),
+        upper_quartile: point.upper_quartile,
+        upper_quartile_label: point.upper_quartile.map(format_number_full),
+        baseline_n: point.baseline_n,
+        delta_pct,
+        delta_pct_label: delta_pct.map(|value| format!("{value:+.1}%")),
+        status: point.status.as_str(),
+        status_label: point.status.label(),
+        tooltip,
     }
 }
 

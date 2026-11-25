@@ -47,6 +47,10 @@ with sync_playwright() as playwright:
     check(page.get_by_role("heading", name="Today's Ridership").is_visible(), "default data-card chart is not visible")
     check(page.locator(".arrow-button.prev").get_attribute("aria-disabled") == "true", "previous boundary is focusable")
     check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "false", "next chart is not focusable")
+    chart_jump = page.locator(".chart-jump")
+    check(chart_jump.count() == 1, "chart jump select is missing")
+    check(chart_jump.locator("option").count() == 4, "chart jump select does not list every chart")
+    check(chart_jump.input_value() == "data-card", "chart jump select is not synced to the active chart")
     check(page.locator("#chart-data").count() == 1, "embedded Rust chart payload is missing")
     check(page.locator(".chart-shell.d3-enhanced").count() == 1, "D3 enhancement did not initialise")
     check(page.locator(".d3-datacard-scene").count() == 1, "D3 data-card scene is missing")
@@ -77,11 +81,35 @@ with sync_playwright() as playwright:
     page.get_by_role("heading", name="Commute vs Casual by Weekday").wait_for(state="visible", timeout=10000)
     page.locator(".d3-line-scene").wait_for(state="visible", timeout=10000)
     page.wait_for_function("() => document.querySelectorAll('.d3-point-group').length === 14", timeout=10000)
-    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
 
     page.locator(".d3-point-group").first.focus()
     check(page.locator("#chart-tooltip").is_visible(), "point focus tooltip is not visible")
     check("mean" in page.locator("#chart-tooltip").text_content(), "point tooltip lacks statistics")
+
+    chart_jump.select_option("calendar")
+    page.get_by_role("heading", name="Daily Total Ridership").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-calendar-scene").wait_for(state="visible", timeout=10000)
+    check(chart_jump.input_value() == "calendar", "chart jump select did not follow direct navigation")
+    chart_jump.select_option("commute-casual")
+    page.get_by_role("heading", name="Commute vs Casual by Weekday").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-line-scene").wait_for(state="visible", timeout=10000)
+    check(chart_jump.input_value() == "commute-casual", "chart jump select did not restore the active chart")
+    insight_box = page.locator(".d3-insight").bounding_box()
+    method_box = page.locator(".chart-method").bounding_box()
+    check(insight_box is not None and method_box is not None, "line insight or method note is missing")
+    check(insight_box["y"] + insight_box["height"] <= method_box["y"] + 1, "line insight overlaps the method note")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Unusual for its Weekday?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-baseline-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-baseline-point-group').length > 0", timeout=10000)
+    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
+    check(page.locator(".baseline-svg-legend").count() >= 1, "baseline legend is missing")
+
+    page.locator(".d3-baseline-point-group").first.focus()
+    check(page.locator("#chart-tooltip").is_visible(), "baseline point focus tooltip is not visible")
+    check("total" in page.locator("#chart-tooltip").text_content(), "baseline tooltip lacks total")
 
     # Range change through the date picker recomputes the payload. The target
     # end date comes from the loaded dataset's own available dates, so the
@@ -117,7 +145,7 @@ with sync_playwright() as playwright:
         f"() => {{ const s = JSON.parse(sessionStorage.getItem('metroDashState') || '{{}}'); return s.end === '{target_end}'; }}",
         timeout=10000,
     )
-    check(state(page).get("chart") == "commute-casual", "range change reset the active chart")
+    check(state(page).get("chart") == "weekday-baseline", "range change reset the active chart")
 
     # On the static site the WASM compute core answers every range change
     # locally; /api/* must stay untouched. The self-hosted server has no

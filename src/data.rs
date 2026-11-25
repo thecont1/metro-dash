@@ -100,6 +100,49 @@ pub struct WeekdayMetric {
     pub max: Option<f64>,
 }
 
+pub const BASELINE_WINDOW: usize = 12;
+pub const BASELINE_MIN_OBSERVATIONS: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BaselineStatus {
+    High,
+    Low,
+    Within,
+    Insufficient,
+}
+
+impl BaselineStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::High => "high",
+            Self::Low => "low",
+            Self::Within => "within",
+            Self::Insufficient => "insufficient",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::High => "Above band",
+            Self::Low => "Below band",
+            Self::Within => "Within band",
+            Self::Insufficient => "Baseline unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeekdayBaselinePoint {
+    pub date: NaiveDate,
+    pub weekday: Weekday,
+    pub total: f64,
+    pub lower_quartile: Option<f64>,
+    pub median: Option<f64>,
+    pub upper_quartile: Option<f64>,
+    pub baseline_n: usize,
+    pub status: BaselineStatus,
+}
+
 pub fn choose_range(dataset: &Dataset, start: Option<&str>, end: Option<&str>) -> DateRange {
     let requested_start = start.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
     let requested_end = end.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
@@ -568,4 +611,70 @@ pub fn quantile(values: &[f64], probability: f64) -> Option<f64> {
     let lower = position.floor() as usize;
     let upper = position.ceil() as usize;
     Some(sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower as f64))
+}
+
+/// Compute a rolling, weekday-specific baseline for every reported day in
+/// `range`. The baseline for a day uses up to six published reports before
+/// and six after that day with the same weekday, so a Monday is compared with
+/// nearby Mondays and the current value never contaminates its own reference band.
+pub fn weekday_baseline_series(dataset: &Dataset, range: DateRange) -> Vec<WeekdayBaselinePoint> {
+    dataset
+        .records
+        .iter()
+        .filter(|record| record.date >= range.start && record.date <= range.end)
+        .filter_map(|record| {
+            let total = record.total_ridership?;
+            let half_window = BASELINE_WINDOW / 2;
+            let prior_values = dataset
+                .records
+                .iter()
+                .rev()
+                .filter(|candidate| {
+                    candidate.date < record.date
+                        && candidate.date.weekday() == record.date.weekday()
+                })
+                .filter_map(|candidate| candidate.total_ridership)
+                .take(half_window);
+            let following_values = dataset
+                .records
+                .iter()
+                .filter(|candidate| {
+                    candidate.date > record.date
+                        && candidate.date.weekday() == record.date.weekday()
+                })
+                .filter_map(|candidate| candidate.total_ridership)
+                .take(half_window);
+            let baseline_values: Vec<f64> = prior_values.chain(following_values).collect();
+            let baseline_n = baseline_values.len();
+            let quartiles = (baseline_n >= BASELINE_MIN_OBSERVATIONS).then(|| {
+                (
+                    quantile(&baseline_values, 0.25),
+                    quantile(&baseline_values, 0.5),
+                    quantile(&baseline_values, 0.75),
+                )
+            });
+            let (lower_quartile, median, upper_quartile) = match quartiles {
+                Some((Some(lower), Some(median), Some(upper))) => {
+                    (Some(lower), Some(median), Some(upper))
+                }
+                _ => (None, None, None),
+            };
+            let status = match (lower_quartile, upper_quartile) {
+                (Some(_), Some(upper)) if total > upper => BaselineStatus::High,
+                (Some(lower), Some(_)) if total < lower => BaselineStatus::Low,
+                (Some(_), Some(_)) => BaselineStatus::Within,
+                _ => BaselineStatus::Insufficient,
+            };
+            Some(WeekdayBaselinePoint {
+                date: record.date,
+                weekday: record.date.weekday(),
+                total,
+                lower_quartile,
+                median,
+                upper_quartile,
+                baseline_n,
+                status,
+            })
+        })
+        .collect()
 }

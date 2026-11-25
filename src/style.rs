@@ -98,16 +98,18 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-stage{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .stage-topline{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin-bottom:4px}
 .eyebrow .chart-index,.eyebrow .chart-total{color:var(--ink)}
-.chart-title-row{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:2px 0 0}
+.chart-title-row{display:flex;justify-content:space-between;align-items:center;gap:18px;row-gap:10px;flex-wrap:wrap;margin:2px 0 0}
 .chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0}
 .chart-deck{font-family:var(--font-display);font-style:italic;font-size:.95rem;color:var(--ink-muted);max-width:62ch;margin:0 0 8px}
 .chart-shell{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
-.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .baseline-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .chart-shell.has-render{position:relative}
-.chart-pager{display:flex;gap:16px}
+.chart-pager{display:flex;gap:16px;align-items:center;justify-content:flex-end;flex-wrap:wrap;min-width:0}
 .chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:8px 4px;min-height:24px;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
 .chart-pager .arrow-button[aria-disabled="false"]:hover{color:var(--accent)}
 .chart-pager .arrow-button[aria-disabled="true"]{color:var(--muted-2);cursor:not-allowed;pointer-events:none}
+.chart-pager .chart-jump{width:clamp(8rem,22vw,14rem);max-width:100%;min-height:32px;border:1px solid var(--ink);border-radius:2px;background:var(--paper);color:var(--ink);font:800 .68rem/1 var(--font-body);letter-spacing:.06em;text-transform:uppercase;padding:.55rem .7rem;cursor:pointer}
+.chart-pager .chart-jump:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .chart-pager .arrow-glyph{font-size:1.2rem;font-weight:300;line-height:.5}
 .chart-pager .arrow-glyph-label{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;line-height:1}
 
@@ -120,10 +122,13 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    the .d3-enhanced clip is the only switch between SSR and D3 scenes.
    Content sizes itself to fit inside the parent so a wide calendar
    shrinks on narrow viewports instead of forcing a horizontal scrollbar. */
-.calendar-wrap,.line-chart-wrap{flex:1 1 auto;min-height:0}
+.calendar-wrap,.line-chart-wrap,.baseline-wrap{flex:1 1 auto;min-height:0}
 .d3-scene{flex:0 1 auto;min-height:0;min-width:0}
 .d3-scene[hidden]{display:none}
-.d3-calendar-svg,.d3-line-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
+.d3-calendar-svg,.d3-line-svg,.d3-baseline-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
+.d3-line-scene{display:flex;flex-direction:column;flex:1 1 auto}
+.d3-line-scene .d3-line-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
+.d3-line-scene .d3-insight{flex:0 0 auto}
 
 /* D3 calendar layout — frozen weekday column + scrollable SVG */
 .calendar-layout{display:flex;gap:4px;align-items:stretch;width:100%}
@@ -178,6 +183,33 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .point-label.casual,.series-label.casual{fill:var(--gold)}
 .series-label{font:700 11px var(--font-body)}
 .insight{margin:6px 0 8px;color:var(--ink);font:600 1rem var(--font-display);letter-spacing:-.01em;max-width:60ch}
+/* Weekday-normalised baseline chart */
+.baseline-wrap{width:100%}
+.baseline-chart{display:block;width:100%;max-width:100%;height:auto}
+.baseline-band{fill:var(--accent);fill-opacity:.11;stroke:none}
+.baseline-median{stroke:var(--accent);stroke-width:1.8;stroke-dasharray:5 4;opacity:.78}
+.baseline-actual{stroke:var(--ink);stroke-width:2.2;opacity:.88}
+.baseline-point{stroke:var(--paper);stroke-width:2.4;cursor:pointer}
+.baseline-point.within,.legend-dot.within{fill:#6f7480}
+.baseline-point.high,.legend-dot.high{fill:var(--accent)}
+.baseline-point.low,.legend-dot.low{fill:var(--missing)}
+.baseline-point.insufficient{fill:var(--muted-2);opacity:.65}
+.baseline-point-hit:focus{outline:none}
+.baseline-point-hit:focus + .baseline-point{stroke:var(--ink);stroke-width:3.4}
+.baseline-legend{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin-top:4px;color:var(--muted);font:700 .68rem var(--font-body);letter-spacing:.02em}
+.baseline-legend span{display:inline-flex;align-items:center;gap:6px;min-height:20px}
+.legend-swatch-band{display:inline-block;width:18px;height:10px;background:var(--accent);opacity:.16;border:1px solid var(--accent)}
+.legend-line-median{display:inline-block;width:18px;height:0;border-top:2px dashed var(--ink)}
+.legend-dot{display:inline-block;width:9px;height:9px;border-radius:50%;border:1px solid var(--paper)}
+.baseline-empty{margin:32px auto;color:var(--muted);font:600 .95rem var(--font-body);text-align:center}
+.baseline-svg-insight{fill:var(--ink);font:600 13px var(--font-display);letter-spacing:-.01em}
+.baseline-svg-legend text{fill:var(--muted);font:700 11px var(--font-body)}
+.legend-mark-band{fill:var(--accent);fill-opacity:.14;stroke:var(--accent);stroke-opacity:.45}
+.legend-mark-median{stroke:var(--accent);stroke-width:1.8;stroke-dasharray:5 4}
+.legend-mark-dot{stroke:var(--paper);stroke-width:1.4}
+.legend-mark-dot.within{fill:#6f7480}
+.legend-mark-dot.high{fill:var(--accent)}
+.legend-mark-dot.low{fill:var(--missing)}
 
 /* SSR fallback tables (the accessible-data details block) */
 .accessible-data{margin-top:6px;font-size:.7rem;color:var(--muted);position:relative;z-index:1;background:var(--paper)}
@@ -225,6 +257,8 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 .d3-series-path.casual,.d3-point.casual,.d3-whisker.casual{stroke:var(--gold);fill:var(--gold)}
 .d3-point{stroke:var(--paper);stroke-width:3;cursor:pointer}
 .d3-point-group:focus .d3-point{stroke:var(--ink);stroke-width:3}
+.d3-baseline-point{stroke:var(--paper);stroke-width:2.4;cursor:pointer}
+.d3-baseline-point-group:focus .d3-baseline-point{stroke:var(--ink);stroke-width:3.4}
 .d3-whisker{stroke-width:2;opacity:.45}
 .d3-point-label{font:700 11px var(--font-body)}
 .d3-point-label.commute,.d3-series-label.commute{fill:var(--accent)}
@@ -253,8 +287,8 @@ body.chart-data-card .prepare-band{display:none}
 body.chart-data-card .chart-stage{justify-content:center}
 body.chart-data-card .chart-shell{justify-content:center}
 body.chart-data-card .d3-datacard-scene{position:absolute;pointer-events:none;width:0;height:0;overflow:visible}
-body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap{display:none}
-body.chart-data-card .legend,body.chart-commute-casual .legend{display:none}
+body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap,body.chart-weekday-baseline .data-card-wrap{display:none}
+body.chart-data-card .legend,body.chart-commute-casual .legend,body.chart-weekday-baseline .legend{display:none}
 .data-card-wrap{max-width:1100px;margin:0 auto;width:100%}
 .data-card-inner{background:var(--paper);border:1px solid var(--hairline);border-radius:12px;padding:28px 32px;display:flex;flex-direction:column;gap:24px}
 .dc-top-story{display:flex;flex-direction:column;gap:20px}

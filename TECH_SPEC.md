@@ -9,7 +9,7 @@
 - **Audience**: Non-technical public-data consumers
 - **Scale**: Three interactive chart slides
 - **Data source**: Fresh CSV pulled from GitHub by the browser on each page load
-- **Interaction model**: One chart per view; left/right arrows navigate between charts; date range controls recalculate all visualisations locally in WASM
+- **Interaction model**: One chart per view; previous/next controls, a chart jump menu, left/right arrows, and swipe navigate between charts; date range controls recalculate all visualisations locally in WASM
 - **Accessibility**: SSR fallback for every chart, keyboard navigation, ARIA labels, reduced-motion support
 - **Clean URL**: The URL is always `/`; chart and range state live in `sessionStorage` for the current pageview only and reset on refresh
 
@@ -156,6 +156,7 @@ Two paths feed the same `Dataset` type:
 ### Statistics
 
 - `summarise()` computes: calendar days, observation days, missing days, percentile bands (p2–p98), min/max totals, weekday metrics (mean, sample SD, min/max per weekday)
+- `weekday_baseline_series()` computes a rolling same-weekday median and interquartile band from up to six earlier and six later published reports; the current day is excluded and at least four nearby reports are required
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -166,6 +167,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 1. **Data card (`data-card`)** — Today's ridership, broken down by fare media
 2. **Calendar heatmap (`calendar`)** — Daily total ridership, one cell per day, percentile colour bands
 3. **Weekday line chart (`commute-casual`)** — Average commuter vs casual ridership by weekday
+4. **Weekday baseline chart (`weekday-baseline`)** — Daily totals compared with a rolling same-weekday median and interquartile band
 
 ### Adding a new chart
 
@@ -190,6 +192,13 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 - D3: Animated area/line drawing, interactive points with tooltips
 - Insight line: auto-generated text describing peak days for each series
 
+### Unusual for its Weekday?
+
+- SSR: Static SVG with the observed daily series, rolling same-weekday median, IQR band, point status colours, and an accessible data table
+- D3: Time-scaled SVG with keyboard-focusable points and tooltips
+- Baseline window: up to six earlier and six later published reports with the same weekday; the current day is excluded
+- Missing reports are omitted rather than treated as zero; the observed daily line breaks across gaps longer than seven days
+
 ## Client-side architecture
 
 The client JS is a single IIFE embedded in the page. It:
@@ -200,7 +209,7 @@ The client JS is a single IIFE embedded in the page. It:
 4. Syncs date range controls (sliders ↔ date pickers)
 5. On date range change, calls `chartPayload(start, end)` locally in WASM; if the WASM core is unavailable (e.g. self-hosted server build), falls back to `GET /api/chart`
 6. Keeps chart and range state in `sessionStorage`
-7. Handles keyboard navigation (arrow keys for chart switching)
+7. Handles chart navigation (previous/next controls, jump menu, arrow keys, and swipe)
 8. Resets `sessionStorage` on every page load so the user always lands on the latest datapoint
 9. Respects `prefers-reduced-motion`
 
@@ -230,7 +239,7 @@ The client JS is a single IIFE embedded in the page. It:
 ### Rust unit tests (`src/tests.rs`, `#[cfg(all(test, feature = "server"))]`)
 
 - CSV parsing: aliases, numeric values, dates, duplicates, missing components
-- Statistics: quantile interpolation, sample SD, weekday ordering
+- Statistics: quantile interpolation, sample SD, weekday ordering, centred same-weekday baselines
 - Range logic: clamping, snapping, link generation
 - Calendar markup: leap day, partial weeks, month boundaries
 - Payload: chart readiness, JSON serialization

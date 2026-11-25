@@ -7,11 +7,11 @@ use tokio::sync::RwLock;
 use crate::charts::{Chart, band_label, calendar_markup};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
-    Dataset, DateRange, RangeSummary, choose_range, clean_number, parse_dataset, quantile,
-    summarise,
+    BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number, parse_dataset,
+    quantile, summarise, weekday_baseline_series,
 };
 use crate::payload::chart_payload_for;
-use crate::render::{parse_query, range_action_links};
+use crate::render::{chart_jump_markup, parse_query, range_action_links};
 use crate::server::{AppState, constant_time_eq};
 
 fn fixture_dataset() -> Dataset {
@@ -131,6 +131,43 @@ fn weekday_order_is_monday_first() {
 }
 
 #[test]
+fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
+    let mut csv = String::from(
+        "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n",
+    );
+    // Seven Mondays in early 2024. Smart-card values are total minus 40
+    // because the four other parent categories contribute 10 each.
+    let first_monday = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for (week, smart_card) in [60.0, 70.0, 80.0, 160.0, 90.0, 100.0, 110.0]
+        .iter()
+        .enumerate()
+    {
+        let date = first_monday + chrono::Duration::days(week as i64 * 7);
+        csv.push_str(&format!(
+            "{},{smart_card},10,10,10,10\n",
+            date.format("%d-%m-%Y")
+        ));
+    }
+    let dataset = parse_dataset(&csv, "fixture".into()).unwrap();
+    let range = DateRange {
+        start: first_monday,
+        end: first_monday + chrono::Duration::days(42),
+    };
+    let points = weekday_baseline_series(&dataset, range);
+    assert_eq!(points.len(), 7);
+    let target = &points[3];
+    assert_eq!(target.weekday, Weekday::Mon);
+    assert_eq!(target.total, 200.0);
+    assert_eq!(target.baseline_n, 6);
+    // Neighbouring reports are 100, 110, 120, 130, 140, and 150. Including
+    // the current 200 would shift the median to 130, so 125 proves exclusion.
+    assert_eq!(target.median, Some(125.0));
+    assert_eq!(target.lower_quartile, Some(112.5));
+    assert_eq!(target.upper_quartile, Some(137.5));
+    assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
 fn query_parser_handles_malformed_values_without_panicking() {
     let query = parse_query("start=nope&end=2026-01-03&chart=commute-casual&ignored=yes");
     assert_eq!(query.start.as_deref(), Some("nope"));
@@ -178,6 +215,21 @@ fn range_actions_render_clean_href_with_data_attrs() {
     assert!(actions.contains(r#"data-start="2026-01-01""#));
     assert!(actions.contains(r#"data-end="2026-01-20""#));
     assert!(actions.contains(r#"data-chart="calendar""#));
+}
+
+#[test]
+fn chart_jump_lists_every_registered_chart_and_marks_current() {
+    let markup = chart_jump_markup(Chart::Calendar);
+    assert!(markup.contains(r#"class="chart-jump""#));
+    assert!(markup.contains(r#"aria-label="Jump to chart""#));
+    assert!(markup.contains(r#"<option value="data-card">Today's Ridership</option>"#));
+    assert!(markup.contains(r#"<option value="calendar" selected>Daily Total Ridership</option>"#));
+    assert!(
+        markup.contains(r#"<option value="commute-casual">Commute vs Casual by Weekday</option>"#)
+    );
+    assert!(
+        markup.contains(r#"<option value="weekday-baseline">Unusual for its Weekday?</option>"#)
+    );
 }
 
 #[test]
@@ -271,6 +323,20 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
             .unwrap()
             .contains("commuteCasual")
     );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("weekdayBaseline")
+    );
+    assert_eq!(payload.charts.weekday_baseline.window, 12);
+    assert_eq!(
+        payload.charts.weekday_baseline.points.len(),
+        dataset
+            .records
+            .iter()
+            .filter(|record| record.total_ridership.is_some())
+            .count()
+    );
 }
 
 #[test]
@@ -280,6 +346,13 @@ fn text_date_controls_snap_and_recover_when_cleared() {
     assert!(CLIENT_SCRIPT.contains("/api/chart"));
     assert!(CLIENT_SCRIPT.contains("D3.select"));
     assert!(CLIENT_SCRIPT.contains("GSAP.fromTo"));
+}
+
+#[test]
+fn client_script_supports_direct_chart_selection() {
+    assert!(CLIENT_SCRIPT.contains("const chartJump"));
+    assert!(CLIENT_SCRIPT.contains("chartJump?.addEventListener('change'"));
+    assert!(CLIENT_SCRIPT.contains("chartJump.value = activeChart"));
 }
 
 #[tokio::test]

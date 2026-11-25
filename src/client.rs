@@ -20,6 +20,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const chartEyebrow = document.querySelector('.stage-topline .eyebrow');
   const priorButton = document.querySelector('.arrow-button.prev');
   const nextButton = document.querySelector('.arrow-button.next');
+  const chartJump = document.querySelector('.chart-jump');
   const payloadNode = document.querySelector('#chart-data');
   const computeNote = document.getElementById('compute-note');
   if (!startPicker || !endPicker || !startSlider || !endSlider || !payloadNode || !chartShell) return;
@@ -37,8 +38,13 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let computeState = 'pending';
   let computeSettled = null;
 
-  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true };
-  const chartOrder = ['data-card', 'calendar', 'commute-casual'];
+  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true };
+  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline'];
+  if (chartJump) {
+    chartJump.querySelectorAll('option').forEach((option) => {
+      if (!chartRegistry[option.value]) option.remove();
+    });
+  }
 
   const SS_KEY = 'metroDashState';
   // Reset to the latest datapoint on every page load; sessionStorage is only
@@ -119,7 +125,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const bounds = target.getBoundingClientRect();
     tooltip.textContent = text;
     tooltip.hidden = false;
-    tooltip.style.left = `${Math.min(window.innerWidth - 16, Math.max(16, bounds.left + bounds.width / 2))}px`;
+    tooltip.style.left = `${Math.min(window.innerWidth - 128, Math.max(128, bounds.left + bounds.width / 2))}px`;
     tooltip.style.top = `${Math.max(12, bounds.top - 10)}px`;
   };
   let _tooltipTimer = null;
@@ -131,7 +137,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     tooltip.hidden = false;
     tooltip.style.opacity = '1';
     tooltip.style.transition = 'none';
-    tooltip.style.left = `${Math.min(window.innerWidth - 16, Math.max(16, bounds.left + bounds.width / 2))}px`;
+    tooltip.style.left = `${Math.min(window.innerWidth - 128, Math.max(128, bounds.left + bounds.width / 2))}px`;
     tooltip.style.top = `${Math.max(12, bounds.top - 10)}px`;
   };
   const hideTooltip = () => {
@@ -239,6 +245,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       nextButton.setAttribute('aria-label', nextDef ? `Next chart: ${nextDef.title}` : 'Next chart');
       setDisabled(nextButton, nextSlug === null);
     }
+    if (chartJump) chartJump.value = activeChart;
     document.body.className = document.body.className
       .replace(/chart-\S+/g, '')
       .trim() + ' chart-' + activeChart;
@@ -583,6 +590,154 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+  const renderBaseline = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-baseline-scene');
+    const baseline = payload.charts.weekdayBaseline;
+    const points = (baseline?.points || []).map(point => ({...point, dateObject: new Date(`${point.date}T00:00:00`)}));
+    scene.selectAll('.baseline-empty').data(points.length ? [] : [true]).join('p')
+      .attr('class', 'baseline-empty')
+      .text('No published totals are available in this range.');
+    if (!points.length) return;
+
+    const width = 1100, height = 360, left = 70, right = 34, top = 36, bottom = 52;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const startDate = new Date(`${payload.range.start}T00:00:00`);
+    const endDate = new Date(`${payload.range.end}T00:00:00`);
+    const x = D3.scaleTime().domain([startDate, endDate]).range([left, left + plotWidth]);
+    const values = points.flatMap(point => [point.total, point.lowerQuartile, point.upperQuartile].filter(value => value != null));
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values, 1);
+    const spread = Math.max(1, maxValue - minValue);
+    const yMin = Math.max(0, minValue - spread * 0.08);
+    const yMax = maxValue + spread * 0.08;
+    const y = D3.scaleLinear().domain([yMin, yMax]).range([top + plotHeight, top]);
+    const svg = scene.selectAll('svg').data([null]).join('svg')
+      .attr('class', 'd3-baseline-svg baseline-chart')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Daily ridership compared with rolling same-weekday baseline, enhanced with D3');
+
+    svg.selectAll('.d3-grid-line').data(y.ticks(4)).join('line')
+      .attr('class', 'd3-grid-line')
+      .attr('x1', left).attr('x2', width - right)
+      .transition().duration(canAnimate && animate ? 220 : 0)
+      .attr('y1', d => y(d)).attr('y2', d => y(d));
+    svg.selectAll('.d3-y-label').data(y.ticks(4)).join('text')
+      .attr('class', 'd3-y-label')
+      .attr('x', left - 10).attr('text-anchor', 'end')
+      .transition().duration(canAnimate && animate ? 220 : 0)
+      .attr('y', d => y(d) + 4)
+      .text(d => compact(d));
+
+    const spanMs = Math.max(1, endDate.getTime() - startDate.getTime());
+    const monthCount = Math.max(1, (endDate.getFullYear() - startDate.getFullYear()) * 12 + endDate.getMonth() - startDate.getMonth());
+    const monthStep = Math.max(1, Math.ceil(monthCount / 6));
+    let xTicks = x.ticks(D3.timeMonth.every(monthStep))
+      .filter(date => date >= startDate && date <= endDate);
+    if (xTicks.length < 2) {
+      xTicks = Array.from({length: 4}, (_, index) => new Date(startDate.getTime() + spanMs * index / 3));
+    }
+    const spacedTicks = [];
+    xTicks.forEach(date => {
+      const xx = x(date);
+      if (!spacedTicks.length || xx - x(spacedTicks[spacedTicks.length - 1]) >= 56) spacedTicks.push(date);
+    });
+    xTicks = spacedTicks.length >= 2 ? spacedTicks : xTicks.slice(0, 2);
+    const longSpan = spanMs / 86400000 > 500;
+    const monthTickFormat = D3.timeFormat('%b');
+    const yearTickFormat = D3.timeFormat('%b \u2019%y');
+    const dayTickFormat = D3.timeFormat('%-d %b');
+    svg.selectAll('.d3-x-label').data(xTicks, d => d.getTime()).join('text')
+      .attr('class', 'd3-x-label')
+      .attr('text-anchor', 'middle')
+      .attr('y', height - 18)
+      .transition().duration(canAnimate && animate ? 220 : 0)
+      .attr('x', d => x(d))
+      .text((d, index) => {
+        if (xTicks.length < 4 || d.getDate() !== 1) return dayTickFormat(d);
+        return index === 0 || d.getMonth() === 0 || longSpan ? yearTickFormat(d) : monthTickFormat(d);
+      });
+
+    const bandPoints = points.filter(point => point.lowerQuartile != null && point.upperQuartile != null);
+    const band = D3.area()
+      .defined(point => point.lowerQuartile != null && point.upperQuartile != null)
+      .x(point => x(point.dateObject))
+      .y0(point => y(point.lowerQuartile))
+      .y1(point => y(point.upperQuartile));
+    svg.selectAll('.d3-baseline-band').data([bandPoints]).join('path')
+      .attr('class', 'baseline-band d3-baseline-band')
+      .transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('d', band);
+
+    const medianLine = D3.line()
+      .defined(point => point.median != null)
+      .x(point => x(point.dateObject))
+      .y(point => y(point.median));
+    svg.selectAll('.d3-baseline-median').data([points]).join('path')
+      .attr('class', 'baseline-median d3-baseline-median')
+      .attr('fill', 'none')
+      .transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('d', medianLine);
+
+    const actualPath = points.map((point, index) => {
+      const gap = index === 0 ? 0 : (point.dateObject.getTime() - points[index - 1].dateObject.getTime()) / 86400000;
+      const command = index === 0 || gap > 7 ? 'M' : 'L';
+      return `${command}${x(point.dateObject)},${y(point.total)}`;
+    }).join(' ');
+    svg.selectAll('.d3-baseline-actual').data([points]).join('path')
+      .attr('class', 'baseline-actual d3-baseline-actual')
+      .attr('fill', 'none')
+      .transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('d', actualPath);
+
+    const pointGroups = svg.selectAll('.d3-baseline-point-group').data(points, d => d.date).join('g')
+      .attr('class', d => `d3-baseline-point-group ${d.status}`)
+      .attr('aria-label', d => d.tooltip)
+      .attr('data-tooltip', d => d.tooltip);
+    pointGroups.transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('transform', d => `translate(${x(d.dateObject)},${y(d.total)})`);
+    pointGroups.selectAll('circle.d3-point-hit').data(d => [d]).join('circle')
+      .attr('class', 'd3-point-hit')
+      .attr('r', 12)
+      .attr('fill', 'transparent');
+    pointGroups.selectAll('circle.d3-baseline-point').data(d => [d]).join('circle')
+      .attr('class', d => `baseline-point d3-baseline-point ${d.status}`)
+      .attr('r', d => d.status === 'high' || d.status === 'low' ? 5.5 : 4);
+    bindTooltip(pointGroups);
+
+    svg.selectAll('.baseline-svg-insight').data(baseline.insight ? [baseline.insight] : []).join('text')
+      .attr('class', 'baseline-svg-insight')
+      .attr('x', left)
+      .attr('y', 16)
+      .text(d => d);
+
+    const legendData = [
+      {key: 'band', label: 'IQR band', x: 0},
+      {key: 'median', label: 'Median', x: 92},
+      {key: 'within', label: 'Within', x: 166},
+      {key: 'high', label: 'Above', x: 240},
+      {key: 'low', label: 'Below', x: 312},
+    ];
+    const legend = svg.selectAll('.baseline-svg-legend').data([legendData]).join('g')
+      .attr('class', 'baseline-svg-legend')
+      .attr('transform', `translate(${width - right - 380},8)`);
+    const legendItems = legend.selectAll('g').data(d => d, d => d.key).join('g')
+      .attr('transform', d => `translate(${d.x},0)`);
+    // Draw the compact legend imperatively because its mark type varies.
+    legendItems.each(function(d) {
+      const node = D3.select(this);
+      node.selectAll('*').remove();
+      if (d.key === 'band') node.append('rect').attr('class', 'legend-mark-band').attr('width', 18).attr('height', 10).attr('y', -3);
+      else if (d.key === 'median') node.append('line').attr('class', 'legend-mark-median').attr('x1', 0).attr('x2', 18).attr('y1', 2).attr('y2', 2);
+      else node.append('circle').attr('class', `legend-mark-dot ${d.key}`).attr('cx', 7).attr('cy', 2).attr('r', 4.5);
+      node.append('text').attr('x', 24).attr('y', 6).text(d.label);
+    });
+
+    choreograph(scene.node());
+  };
+
   const buildDataCardHTML = (card) => {
     const endIdx = dates.indexOf(payload.range.end);
     const prevDisabled = endIdx <= 0;
@@ -684,7 +839,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     syncChartChrome();
     if (activeChart === 'data-card') renderDataCard(animate);
     else if (activeChart === 'calendar') renderCalendar(animate);
-    else renderLine(animate);
+    else if (activeChart === 'commute-casual') renderLine(animate);
+    else renderBaseline(animate);
   };
 
   // The static site ships a wasm compute core; when present, range changes
@@ -788,6 +944,11 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     event.preventDefault();
     if (link.getAttribute('aria-disabled') === 'true') return;
     const chart = link.dataset.chart;
+    if (!chart || !chartRegistry[chart]) return;
+    navigateToChart(chart);
+  });
+  chartJump?.addEventListener('change', () => {
+    const chart = chartJump.value;
     if (!chart || !chartRegistry[chart]) return;
     navigateToChart(chart);
   });

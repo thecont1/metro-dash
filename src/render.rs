@@ -6,9 +6,14 @@ use topcoat::{
     view::{Unescaped, view},
 };
 
-use crate::charts::{CHARTS, Chart, calendar_markup, data_card_markup, line_chart_markup};
+use crate::charts::{
+    CHARTS, Chart, baseline_chart_markup, calendar_markup, data_card_markup, escape_attr,
+    line_chart_markup,
+};
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
-use crate::data::{Dataset, DateRange, SOURCE_PAGE_URL, choose_range, record_index};
+use crate::data::{
+    Dataset, DateRange, SOURCE_PAGE_URL, choose_range, record_index, weekday_baseline_series,
+};
 use crate::payload::{chart_payload_for, range_presets};
 use crate::style::STYLE;
 
@@ -55,6 +60,23 @@ pub fn range_action_links(dataset: &Dataset, chart: Chart, current: &DateRange) 
             )
         })
         .collect()
+}
+
+pub fn chart_jump_markup(chart: Chart) -> String {
+    let options = CHARTS
+        .iter()
+        .map(|definition| {
+            let selected = if definition.chart == chart {
+                " selected"
+            } else {
+                ""
+            };
+            let slug = escape_attr(definition.slug);
+            let title = escape_attr(definition.title);
+            format!(r#"<option value="{slug}"{selected}>{title}</option>"#)
+        })
+        .collect::<String>();
+    format!(r#"<select class="chart-jump" aria-label="Jump to chart">{options}</select>"#)
 }
 
 const MONTHS: [&str; 12] = [
@@ -124,6 +146,9 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         Chart::DataCard => data_card_markup(&dataset, range),
         Chart::Calendar => calendar_markup(&dataset, range, &summary),
         Chart::CommuteCasual => line_chart_markup(&summary),
+        Chart::WeekdayBaseline => {
+            baseline_chart_markup(&weekday_baseline_series(&dataset, range), range)
+        }
     };
     let start_date_selects = date_select_markup(
         "start-date",
@@ -231,6 +256,7 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
                                     <span class="arrow-glyph">"←"</span>
                                     <span class="arrow-glyph-label">"Previous"</span>
                                 </a>
+                                (Unescaped::new_unchecked(chart_jump_markup(chart)))
                                 <a
                                     class="arrow-button next"
                                     aria-label=(format!("Next chart: {}", next_definition.title))

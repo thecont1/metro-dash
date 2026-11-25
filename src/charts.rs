@@ -3,13 +3,17 @@ use std::fmt::Write as _;
 
 use chrono::{Datelike, NaiveDate, Weekday};
 
-use crate::data::{Dataset, DateRange, RangeSummary, RidershipRecord, WeekdayMetric};
+use crate::data::{
+    BaselineStatus, Dataset, DateRange, RangeSummary, RidershipRecord, WeekdayBaselinePoint,
+    WeekdayMetric,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Chart {
     DataCard,
     Calendar,
     CommuteCasual,
+    WeekdayBaseline,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -21,7 +25,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 3] = [
+pub static CHARTS: [ChartDefinition; 4] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -42,6 +46,13 @@ pub static CHARTS: [ChartDefinition; 3] = [
         title: "Commute vs Casual by Weekday",
         deck: "Average journeys by day of week, using the dates you've selected.",
         method: "Lines show the weekday pattern for two rider groups: people who pay by Smart Card or NCMC (closed-loop), and everyone else (QR + token + group). Averages skip days missing any component of the relevant group.",
+    },
+    ChartDefinition {
+        chart: Chart::WeekdayBaseline,
+        slug: "weekday-baseline",
+        title: "Unusual for its Weekday?",
+        deck: "Daily totals derived from fare media, compared with nearby reports from the same weekday.",
+        method: "Each point is a daily total derived from published fare-media components. The band is the interquartile range of up to 6 earlier and 6 later published reports from the same weekday; the line is their median. At least 4 nearby reports are required. The current day is never included in its own baseline, and missing reports are not treated as zero.",
     },
 ];
 
@@ -521,6 +532,255 @@ pub fn line_chart_markup(summary: &RangeSummary) -> String {
     svg.push_str(&line_table(summary));
     svg.push_str("</div>");
     svg
+}
+
+fn baseline_delta_pct(point: &WeekdayBaselinePoint) -> Option<f64> {
+    point
+        .median
+        .filter(|median| *median != 0.0)
+        .map(|median| (point.total - median) / median * 100.0)
+}
+
+fn baseline_point_label(point: &WeekdayBaselinePoint) -> String {
+    let date = point.date.format("%A, %-d %B %Y");
+    let total = format_number_full(point.total);
+    match (point.median, point.lower_quartile, point.upper_quartile) {
+        (Some(median), Some(lower), Some(upper)) => {
+            let delta = baseline_delta_pct(point)
+                .map(|value| format!("{value:+.1}%"))
+                .unwrap_or_else(|| "—".to_string());
+            format!(
+                "{date}: {total} total journeys, {} the same-weekday baseline. Median {}, interquartile band {}–{}, delta {delta}, baseline n {}.",
+                point.status.label().to_lowercase(),
+                format_number_full(median),
+                format_number_full(lower),
+                format_number_full(upper),
+                point.baseline_n
+            )
+        }
+        _ => format!(
+            "{date}: {total} total journeys. Baseline unavailable; only {} prior same-weekday reports.",
+            point.baseline_n
+        ),
+    }
+}
+
+pub fn baseline_insight(points: &[WeekdayBaselinePoint]) -> String {
+    let high = points
+        .iter()
+        .filter(|point| point.status == BaselineStatus::High)
+        .count();
+    let low = points
+        .iter()
+        .filter(|point| point.status == BaselineStatus::Low)
+        .count();
+    let insufficient = points
+        .iter()
+        .filter(|point| point.status == BaselineStatus::Insufficient)
+        .count();
+    let mut parts = Vec::new();
+    if high > 0 {
+        parts.push(format!("{high} above"));
+    }
+    if low > 0 {
+        parts.push(format!("{low} below"));
+    }
+    if parts.is_empty() {
+        "No published day in this range sits outside its weekday baseline band.".to_string()
+    } else {
+        let mut text = format!(
+            "Reported days outside their weekday baseline band: {}",
+            parts.join(" and ")
+        );
+        if insufficient > 0 {
+            text.push_str(&format!("; {insufficient} lack enough nearby reports"));
+        }
+        text.push('.');
+        text
+    }
+}
+
+pub fn baseline_chart_markup(points: &[WeekdayBaselinePoint], range: DateRange) -> String {
+    if points.is_empty() {
+        return r#"<div class="baseline-wrap"><p class="baseline-empty">No published totals are available in this range.</p></div>"#.to_string();
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 360.0;
+    const LEFT: f64 = 70.0;
+    const RIGHT: f64 = 34.0;
+    const TOP: f64 = 36.0;
+    const BOTTOM: f64 = 52.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let plot_height = HEIGHT - TOP - BOTTOM;
+    let span_days = (range.end - range.start).num_days().max(1) as f64;
+    let x =
+        |date: NaiveDate| LEFT + ((date - range.start).num_days() as f64 / span_days) * plot_width;
+    let min_value = points
+        .iter()
+        .flat_map(|point| [Some(point.total), point.lower_quartile])
+        .flatten()
+        .reduce(f64::min)
+        .unwrap_or(0.0);
+    let max_value = points
+        .iter()
+        .flat_map(|point| [Some(point.total), point.upper_quartile])
+        .flatten()
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let spread = (max_value - min_value).max(1.0);
+    let y_min = (min_value - spread * 0.08).max(0.0);
+    let y_max = max_value + spread * 0.08;
+    let y = |value: f64| TOP + plot_height - (value - y_min) / (y_max - y_min) * plot_height;
+
+    let mut svg = format!(
+        r#"<div class="baseline-wrap"><svg class="baseline-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Daily ridership compared with rolling same-weekday baseline"><g class="grid">"#
+    );
+    for tick in 0..=4 {
+        let value = y_min + (y_max - y_min) * tick as f64 / 4.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 10.0,
+            yy + 4.0,
+            compact_number(value)
+        ));
+    }
+    for tick in 0..=5 {
+        let offset = (span_days * tick as f64 / 5.0).round() as i64;
+        let date = range.start + chrono::Duration::days(offset);
+        let xx = x(date);
+        svg.push_str(&format!(
+            r#"<text class="x-label" x="{xx:.1}" y="{}" text-anchor="middle">{}</text>"#,
+            HEIGHT - 26.0,
+            date.format("%d %b '%y")
+        ));
+    }
+
+    let band_points: Vec<_> = points
+        .iter()
+        .filter(|point| point.lower_quartile.is_some() && point.upper_quartile.is_some())
+        .collect();
+    if band_points.len() >= 2 {
+        let mut path = String::new();
+        for (index, point) in band_points.iter().enumerate() {
+            let command = if index == 0 { 'M' } else { 'L' };
+            write!(
+                path,
+                "{command} {:.1} {:.1} ",
+                x(point.date),
+                y(point.upper_quartile.expect("band point has upper quartile"))
+            )
+            .unwrap();
+        }
+        for point in band_points.iter().rev() {
+            write!(
+                path,
+                "L {:.1} {:.1} ",
+                x(point.date),
+                y(point.lower_quartile.expect("band point has lower quartile"))
+            )
+            .unwrap();
+        }
+        svg.push_str(&format!(
+            r#"<path class="baseline-band" d="{path}Z"></path>"#
+        ));
+    }
+
+    let median_points: Vec<_> = points
+        .iter()
+        .filter(|point| point.median.is_some())
+        .collect();
+    if median_points.len() >= 2 {
+        let mut path = String::new();
+        for (index, point) in median_points.iter().enumerate() {
+            let command = if index == 0 { 'M' } else { 'L' };
+            write!(
+                path,
+                "{command} {:.1} {:.1} ",
+                x(point.date),
+                y(point.median.expect("median point has median"))
+            )
+            .unwrap();
+        }
+        svg.push_str(&format!(
+            r#"<path class="baseline-median" d="{path}" fill="none"></path>"#
+        ));
+    }
+
+    if points.len() >= 2 {
+        let mut path = String::new();
+        for (index, point) in points.iter().enumerate() {
+            let gap = index
+                .checked_sub(1)
+                .map(|previous| (point.date - points[previous].date).num_days())
+                .unwrap_or(0);
+            let command = if index == 0 || gap > 7 { 'M' } else { 'L' };
+            write!(
+                path,
+                "{command} {:.1} {:.1} ",
+                x(point.date),
+                y(point.total)
+            )
+            .unwrap();
+        }
+        svg.push_str(&format!(
+            r#"<path class="baseline-actual" d="{path}" fill="none"></path>"#
+        ));
+    }
+
+    for point in points {
+        let label = baseline_point_label(point);
+        let safe = escape_attr(&label);
+        let xx = x(point.date);
+        let yy = y(point.total);
+        let radius = match point.status {
+            BaselineStatus::High | BaselineStatus::Low => 5.5,
+            BaselineStatus::Within => 4.0,
+            BaselineStatus::Insufficient => 3.5,
+        };
+        svg.push_str(&format!(
+            r#"<circle class="baseline-point-hit" cx="{xx:.1}" cy="{yy:.1}" r="12" fill="transparent" tabindex="0" role="img" aria-label="{safe}" data-tooltip="{safe}"></circle><circle class="baseline-point {}" cx="{xx:.1}" cy="{yy:.1}" r="{radius}" aria-hidden="true"></circle>"#,
+            point.status.as_str()
+        ));
+    }
+    svg.push_str("</g></svg>");
+    svg.push_str(
+        r#"<div class="baseline-legend" aria-label="Baseline chart legend"><span><i class="legend-swatch-band"></i>IQR band</span><span><i class="legend-line-median"></i>Median</span><span><i class="legend-dot within"></i>Within</span><span><i class="legend-dot high"></i>Above</span><span><i class="legend-dot low"></i>Below</span></div>"#,
+    );
+    let insight = baseline_insight(points);
+    if !insight.is_empty() {
+        svg.push_str(&format!(r#"<p class="insight">{insight}</p>"#));
+    }
+    svg.push_str(&baseline_table(points));
+    svg.push_str("</div>");
+    svg
+}
+
+fn baseline_table(points: &[WeekdayBaselinePoint]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View weekday baseline data table</summary><div class="table-scroll"><table><caption>Daily totals and rolling same-weekday baselines</caption><thead><tr><th scope="col">Date</th><th scope="col">Weekday</th><th scope="col">Total</th><th scope="col">Median</th><th scope="col">IQR low</th><th scope="col">IQR high</th><th scope="col">Delta</th><th scope="col">Status</th><th scope="col">Baseline n</th></tr></thead><tbody>"#,
+    );
+    for point in points {
+        let delta = baseline_delta_pct(point)
+            .map(|value| format!("{value:+.1}%"))
+            .unwrap_or_else(|| "—".to_string());
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            point.date,
+            weekday_name(point.weekday),
+            format_number_full(point.total),
+            point.median.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+            point.lower_quartile.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+            point.upper_quartile.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+            delta,
+            point.status.label(),
+            point.baseline_n
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
 }
 
 pub fn insight_line(summary: &RangeSummary) -> String {
