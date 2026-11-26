@@ -2,14 +2,14 @@ use serde::Serialize;
 
 use crate::charts::{
     CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown, format_number_full,
-    format_range, insight_line, weekday_name,
+    format_range, insight_line, weekday_distribution_insight, weekday_name,
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
     FareMixMonth, NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth,
-    WeekdayBaselinePoint, component_waterfall, fare_mix_series, last_n_months_range,
-    ncmc_share_series, qr_mix_series, record_index, smart_mix_series, summarise,
-    weekday_baseline_series,
+    WeekdayBaselinePoint, WeekdayDistribution, component_waterfall, fare_mix_series,
+    last_n_months_range, ncmc_share_series, qr_mix_series, record_index, smart_mix_series,
+    summarise, weekday_baseline_series, weekday_distribution_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -146,6 +146,7 @@ pub struct PayloadCharts {
     pub ncmc_share: NcmcSharePayload,
     pub qr_mix: FareMediaMixPayload,
     pub smart_mix: FareMediaMixPayload,
+    pub weekday_distribution: WeekdayDistributionPayload,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -274,6 +275,33 @@ pub struct WeekdayBaselinePointPayload {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WeekdayDistributionPayload {
+    pub days: Vec<WeekdayDistributionDayPayload>,
+    pub insight: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeekdayDistributionDayPayload {
+    pub weekday: &'static str,
+    pub weekday_short: &'static str,
+    pub index: usize,
+    pub n: usize,
+    pub minimum: Option<f64>,
+    pub minimum_label: Option<String>,
+    pub lower_quartile: Option<f64>,
+    pub lower_quartile_label: Option<String>,
+    pub median: Option<f64>,
+    pub median_label: Option<String>,
+    pub upper_quartile: Option<f64>,
+    pub upper_quartile_label: Option<String>,
+    pub maximum: Option<f64>,
+    pub maximum_label: Option<String>,
+    pub tooltip: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CalendarPayload {
     pub cells: Vec<CalendarCellPayload>,
     pub legend_html: String,
@@ -349,6 +377,8 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let ncmc_share = ncmc_share_payload(&ncmc_share_series(dataset, range));
     let qr_mix = qr_mix_payload(&qr_mix_series(dataset, range));
     let smart_mix = smart_mix_payload(&smart_mix_series(dataset, range));
+    let weekday_distribution =
+        weekday_distribution_payload(&weekday_distribution_series(dataset, range));
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -406,6 +436,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             ncmc_share,
             qr_mix,
             smart_mix,
+            weekday_distribution,
         },
         presets: range_presets(dataset)
             .iter()
@@ -425,6 +456,63 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 method: definition.method,
             })
             .collect(),
+    }
+}
+
+fn weekday_distribution_payload(days: &[WeekdayDistribution]) -> WeekdayDistributionPayload {
+    let day_payloads = days
+        .iter()
+        .enumerate()
+        .map(|(index, day)| {
+            let label = if day.n == 0 {
+                format!(
+                    "{}: no published totals in the selected range.",
+                    weekday_name(day.weekday)
+                )
+            } else {
+                format!(
+                    "{}: median {}, interquartile range {}–{}, full range {}–{}, n {}.",
+                    weekday_name(day.weekday),
+                    day.median
+                        .map(format_number_full)
+                        .unwrap_or_else(|| "—".into()),
+                    day.lower_quartile
+                        .map(format_number_full)
+                        .unwrap_or_else(|| "—".into()),
+                    day.upper_quartile
+                        .map(format_number_full)
+                        .unwrap_or_else(|| "—".into()),
+                    day.minimum
+                        .map(format_number_full)
+                        .unwrap_or_else(|| "—".into()),
+                    day.maximum
+                        .map(format_number_full)
+                        .unwrap_or_else(|| "—".into()),
+                    day.n
+                )
+            };
+            WeekdayDistributionDayPayload {
+                weekday: weekday_name(day.weekday),
+                weekday_short: weekday_name(day.weekday).get(..3).unwrap_or(""),
+                index,
+                n: day.n,
+                minimum: day.minimum,
+                minimum_label: day.minimum.map(format_number_full),
+                lower_quartile: day.lower_quartile,
+                lower_quartile_label: day.lower_quartile.map(format_number_full),
+                median: day.median,
+                median_label: day.median.map(format_number_full),
+                upper_quartile: day.upper_quartile,
+                upper_quartile_label: day.upper_quartile.map(format_number_full),
+                maximum: day.maximum,
+                maximum_label: day.maximum.map(format_number_full),
+                tooltip: label,
+            }
+        })
+        .collect();
+    WeekdayDistributionPayload {
+        days: day_payloads,
+        insight: weekday_distribution_insight(days),
     }
 }
 

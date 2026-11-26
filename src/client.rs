@@ -39,8 +39,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let computeState = 'pending';
   let computeSettled = null;
 
-  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true, 'qr-channel-mix': true, 'smart-card-mix': true };
-  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share', 'qr-channel-mix', 'smart-card-mix'];
+  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true, 'qr-channel-mix': true, 'smart-card-mix': true, 'weekday-distributions': true };
+  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share', 'qr-channel-mix', 'smart-card-mix', 'weekday-distributions'];
   if (chartJump) {
     chartJump.querySelectorAll('option').forEach((option) => {
       if (!chartRegistry[option.value]) option.remove();
@@ -1441,6 +1441,79 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+
+  const renderWeekdayDistribution = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-dist-scene');
+    const days = payload.charts.weekdayDistribution?.days || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.dist-empty-message').remove();
+    if (!days.length) {
+      scene.append('p').attr('class', 'dist-empty-message').text('No weekday observations are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    scene.selectAll('.d3-insight').data(payload.charts.weekdayDistribution?.insight ? [payload.charts.weekdayDistribution.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const width = 1100, height = 400, left = 64, right = 28, top = 32, bottom = 68;
+    const plotWidth = width - left - right, plotHeight = height - top - bottom;
+    const maxValue = Math.max(1, ...days.map(d => d.maximum || 0));
+    const x = index => left + plotWidth * (index + 0.5) / 7;
+    const y = value => top + plotHeight - value / maxValue * plotHeight;
+    const svg = scene.append('svg')
+      .attr('class', 'd3-dist-svg')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Weekday distributions of observed daily totals, enhanced with D3');
+    for (let tick = 0; tick <= 4; tick++) {
+      const value = maxValue * tick / 4;
+      const yy = y(value);
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 10).attr('y', yy + 4).attr('text-anchor', 'end').text(compact(value));
+    }
+    days.forEach((day, index) => {
+      const xx = x(index);
+      svg.append('text').attr('class', 'd3-x-label dist-x-label').attr('x', xx).attr('y', height - 28).attr('text-anchor', 'middle').text(day.weekdayShort);
+      if (!day.n) {
+        svg.append('text').attr('class', 'dist-empty').attr('x', xx).attr('y', top + plotHeight / 2).attr('text-anchor', 'middle').text('n 0');
+        return;
+      }
+      const hit = svg.append('rect')
+        .attr('class', 'd3-dist-hit')
+        .attr('x', xx - 48).attr('y', top).attr('width', 96).attr('height', plotHeight)
+        .attr('fill', 'transparent')
+        .attr('tabindex', 0)
+        .attr('role', 'img')
+        .attr('aria-label', day.tooltip)
+        .attr('data-tooltip', day.tooltip);
+      bindTooltip(hit);
+      const group = svg.append('g').attr('class', 'd3-dist-day').attr('aria-hidden', 'true');
+      const minY = y(day.minimum || 0), maxY = y(day.maximum || 0), q1Y = y(day.lowerQuartile || 0), q3Y = y(day.upperQuartile || 0), medY = y(day.median || 0);
+      const boxHeight = Math.max(1, q1Y - q3Y);
+      group.append('line').attr('class', 'dist-whisker').attr('x1', xx).attr('x2', xx).attr('y1', maxY).attr('y2', minY);
+      group.append('line').attr('class', 'dist-cap').attr('x1', xx - 22).attr('x2', xx + 22).attr('y1', maxY).attr('y2', maxY);
+      group.append('line').attr('class', 'dist-cap').attr('x1', xx - 22).attr('x2', xx + 22).attr('y1', minY).attr('y2', minY);
+      const box = group.append('rect').attr('class', 'dist-box').attr('x', xx - 27).attr('width', 54);
+      const median = group.append('line').attr('class', 'dist-median').attr('x1', xx - 27).attr('x2', xx + 27);
+      group.append('text').attr('class', 'dist-n').attr('x', xx).attr('y', height - 9).attr('text-anchor', 'middle').text(`n ${day.n}`);
+      if (canAnimate && animate) {
+        box.attr('y', medY).attr('height', 1).transition().duration(360).attr('y', q3Y).attr('height', boxHeight);
+        median.attr('y1', medY).attr('y2', medY).attr('opacity', 0).transition().duration(360).attr('opacity', 1);
+      } else {
+        box.attr('y', q3Y).attr('height', boxHeight);
+        median.attr('y1', medY).attr('y2', medY);
+      }
+    });
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend dist-svg-legend').attr('transform', `translate(${width - right - 360},10)`);
+    [['dist-key-box','Interquartile range',0],['dist-key-median','Median',150],['dist-key-whisker','Observed range',220]].forEach(([cls,label,dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      item.append('rect').attr('class', `dist-key ${cls}`).attr('x', 2).attr('y', -4).attr('width', 10).attr('height', 10).attr('rx', 2);
+      item.append('text').attr('x', 18).attr('y', 6).text(label);
+    });
+    choreograph(scene.node());
+  };
+
   const renderActiveChart = (animate = true) => {
     hideTooltipImmediately();
     syncChartChrome();
@@ -1452,7 +1525,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     else if (activeChart === 'fare-media-mix') renderFareMix(animate);
     else if (activeChart === 'ncmc-share') renderNcmcShare(animate);
     else if (activeChart === 'qr-channel-mix') renderQrMix(animate);
-    else renderSmartMix(animate);
+    else if (activeChart === 'smart-card-mix') renderSmartMix(animate);
+    else renderWeekdayDistribution(animate);
   };
 
   // The static site ships a wasm compute core; when present, range changes
@@ -1572,6 +1646,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       if (activeChart === 'ncmc-share') renderNcmcShare(false);
       if (activeChart === 'qr-channel-mix') renderQrMix(false);
       if (activeChart === 'smart-card-mix') renderSmartMix(false);
+      if (activeChart === 'weekday-distributions') renderWeekdayDistribution(false);
     }, 120);
   });
   // Day cycling buttons on the data card — change the end date by one

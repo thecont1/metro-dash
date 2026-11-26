@@ -161,6 +161,7 @@ Two paths feed the same `Dataset` type:
 - `ncmc_share_series()` aggregates days with both Smart Card and NCMC into ISO weeks so count and share panels use the same evidence base
 - `qr_mix_series()` aggregates complete four-provider QR days by month; shares use provider sums while parent QR remains a separate scale measure because they do not always reconcile
 - `smart_mix_series()` aggregates complete Smart Card subtype days by month; shares use subtype sums while parent Smart Cards provide separate scale context
+- `weekday_distribution_series()` computes total-ridership quartiles and observed ranges by weekday without imputing missing dates
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -177,6 +178,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 7. **NCMC share (`ncmc-share`)** — Weekly NCMC share of Smart Cards + NCMC with counts shown separately
 8. **QR channel mix (`qr-channel-mix`)** — Monthly provider-level shares with parent Total QR shown separately
 9. **Smart Card subtype mix (`smart-card-mix`)** — Monthly subtype shares with parent Smart Cards shown separately
+10. **Weekday distributions (`weekday-distributions`)** — Median/IQR/full-range distribution for each weekday
 
 ### Adding a new chart
 

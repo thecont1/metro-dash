@@ -5,7 +5,8 @@ use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
     BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, NcmcShareWeek,
-    QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint, WeekdayMetric,
+    QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint,
+    WeekdayDistribution, WeekdayMetric,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,6 +20,7 @@ pub enum Chart {
     NcmcShare,
     QrMix,
     SmartMix,
+    WeekdayDistribution,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -30,7 +32,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 9] = [
+pub static CHARTS: [ChartDefinition; 10] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -93,6 +95,13 @@ pub static CHARTS: [ChartDefinition; 9] = [
         title: "What is Inside Smart Cards?",
         deck: "Monthly Smart Card subtype shares, with parent Smart Cards shown separately underneath.",
         method: "Months aggregate days where all four Smart Card subtype fields are present. Shares use the subtype sum; the lower strip shows the published parent Smart Card total for the same complete days. Missing fields exclude the day rather than becoming zero. These are fare-media counts, not unique people or trip purposes.",
+    },
+    ChartDefinition {
+        chart: Chart::WeekdayDistribution,
+        slug: "weekday-distributions",
+        title: "How Predictable is Each Weekday?",
+        deck: "Observed daily-total distributions for every weekday in the selected range.",
+        method: "For each weekday, the box spans the interquartile range, the centre line is the median, and whiskers span the full observed range. Only published derived totals count; missing reports are omitted rather than zero-filled. A wide range is descriptive variability, not evidence of crowding or capacity pressure.",
     },
 ];
 
@@ -886,6 +895,150 @@ fn smart_mix_table(months: &[SmartMixMonth]) -> String {
             month.month.format("%b %Y"), month.complete_days, month.published_days,
             if month.has_mix() { format_number_full(month.parent_smart_total) } else { "—".into() },
             share(0), share(1), share(2), share(3)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub fn weekday_distribution_insight(days: &[WeekdayDistribution]) -> String {
+    let usable: Vec<&WeekdayDistribution> = days
+        .iter()
+        .filter(|day| day.n >= 2 && day.lower_quartile.is_some() && day.upper_quartile.is_some())
+        .collect();
+    if usable.is_empty() {
+        return "Not enough observations in the selected range to compare weekday distributions."
+            .to_string();
+    }
+    let width = |day: &WeekdayDistribution| {
+        day.upper_quartile.unwrap_or(0.0) - day.lower_quartile.unwrap_or(0.0)
+    };
+    let widest = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| width(a).total_cmp(&width(b)))
+        .expect("nonempty");
+    let narrowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| width(a).total_cmp(&width(b)))
+        .expect("nonempty");
+    format!(
+        "{} has the widest interquartile range ({}–{}); {} is the tightest ({}–{}).",
+        weekday_name(widest.weekday),
+        format_number_full(widest.lower_quartile.unwrap_or(0.0)),
+        format_number_full(widest.upper_quartile.unwrap_or(0.0)),
+        weekday_name(narrowest.weekday),
+        format_number_full(narrowest.lower_quartile.unwrap_or(0.0)),
+        format_number_full(narrowest.upper_quartile.unwrap_or(0.0))
+    )
+}
+
+fn distribution_day_label(day: &WeekdayDistribution) -> String {
+    if day.n == 0 {
+        return format!(
+            "{}: no published totals in the selected range.",
+            weekday_name(day.weekday)
+        );
+    }
+    format!(
+        "{}: median {}, interquartile range {}–{}, full range {}–{}, n {}.",
+        weekday_name(day.weekday),
+        day.median
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.lower_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.upper_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.minimum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.maximum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.n
+    )
+}
+
+pub fn weekday_distribution_chart_markup(days: &[WeekdayDistribution]) -> String {
+    const WIDTH: f64 = 900.0;
+    const HEIGHT: f64 = 380.0;
+    const LEFT: f64 = 66.0;
+    const RIGHT: f64 = 24.0;
+    const TOP: f64 = 28.0;
+    const BOTTOM: f64 = 64.0;
+    let max_value = days
+        .iter()
+        .filter_map(|day| day.maximum)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let plot_height = HEIGHT - TOP - BOTTOM;
+    let x = |index: usize| LEFT + plot_width * (index as f64 + 0.5) / 7.0;
+    let y = |value: f64| TOP + plot_height - value / max_value * plot_height;
+    let mut svg = format!(
+        r#"<div class="dist-ssr-wrap"><svg class="dist-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Weekday distributions of observed daily totals"><g class="grid">"#
+    );
+    for tick in 0..=4 {
+        let value = max_value * tick as f64 / 4.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT, LEFT - 10.0, yy + 4.0, compact_number(value)
+        ));
+    }
+    for (index, day) in days.iter().enumerate() {
+        let xx = x(index);
+        svg.push_str(&format!(
+            r#"<text class="x-label" x="{xx:.1}" y="{}" text-anchor="middle">{}</text>"#,
+            HEIGHT - 25.0,
+            weekday_name(day.weekday).get(..3).unwrap_or("")
+        ));
+        if day.n == 0 {
+            svg.push_str(&format!(
+                r#"<text class="dist-empty" x="{xx:.1}" y="{:.1}" text-anchor="middle">n 0</text>"#,
+                TOP + plot_height / 2.0
+            ));
+            continue;
+        }
+        let label = escape_attr(&distribution_day_label(day));
+        let min_y = y(day.minimum.unwrap_or(0.0));
+        let max_y = y(day.maximum.unwrap_or(0.0));
+        let q1_y = y(day.lower_quartile.unwrap_or(0.0));
+        let q3_y = y(day.upper_quartile.unwrap_or(0.0));
+        let med_y = y(day.median.unwrap_or(0.0));
+        svg.push_str(&format!(
+            r#"<g class="dist-day" tabindex="0" role="img" aria-label="{label}" data-tooltip="{label}"><line class="dist-whisker" x1="{xx:.1}" x2="{xx:.1}" y1="{max_y:.1}" y2="{min_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{max_y:.1}" y2="{max_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{min_y:.1}" y2="{min_y:.1}"></line><rect class="dist-box" x="{:.1}" y="{q3_y:.1}" width="42" height="{:.1}"></rect><line class="dist-median" x1="{:.1}" x2="{:.1}" y1="{med_y:.1}" y2="{med_y:.1}"></line><text class="dist-n" x="{xx:.1}" y="{}" text-anchor="middle">n {}</text></g>"#,
+            xx - 18.0, xx + 18.0, xx - 18.0, xx + 18.0,
+            xx - 21.0, (q1_y - q3_y).max(1.0), xx - 21.0, xx + 21.0,
+            HEIGHT - 8.0, day.n
+        ));
+    }
+    svg.push_str("</g></svg>");
+    svg.push_str(r#"<div class="dist-legend" aria-label="Distribution legend"><span><i class="dist-key-box"></i>Interquartile range</span><span><i class="dist-key-median"></i>Median</span><span><i class="dist-key-whisker"></i>Observed range</span></div>"#);
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        weekday_distribution_insight(days)
+    ));
+    svg.push_str(&weekday_distribution_table(days));
+    svg.push_str("</div>");
+    svg
+}
+
+fn weekday_distribution_table(days: &[WeekdayDistribution]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View weekday distribution data table</summary><div class="table-scroll"><table><caption>Observed total-ridership distributions by weekday</caption><thead><tr><th scope="col">Weekday</th><th scope="col">n</th><th scope="col">Minimum</th><th scope="col">Q1</th><th scope="col">Median</th><th scope="col">Q3</th><th scope="col">Maximum</th></tr></thead><tbody>"#,
+    );
+    for day in days {
+        let value =
+            |value: Option<f64>| value.map(format_number_full).unwrap_or_else(|| "—".into());
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            weekday_name(day.weekday), day.n, value(day.minimum), value(day.lower_quartile), value(day.median), value(day.upper_quartile), value(day.maximum)
         ));
     }
     table.push_str("</tbody></table></div></details>");

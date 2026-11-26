@@ -204,6 +204,17 @@ impl SmartMixMonth {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeekdayDistribution {
+    pub weekday: Weekday,
+    pub n: usize,
+    pub minimum: Option<f64>,
+    pub lower_quartile: Option<f64>,
+    pub median: Option<f64>,
+    pub upper_quartile: Option<f64>,
+    pub maximum: Option<f64>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaselineStatus {
     High,
@@ -1027,6 +1038,37 @@ fn smart_subtype_components(record: &RidershipRecord) -> Option<[f64; 4]> {
         record.three_day_pass?,
         record.five_day_pass?,
     ])
+}
+
+/// Distribution of observed total ridership for each weekday. Missing reports
+/// are omitted rather than zero-filled; zero-valued reports remain observations.
+pub fn weekday_distribution_series(
+    dataset: &Dataset,
+    range: DateRange,
+) -> Vec<WeekdayDistribution> {
+    let mut buckets: [Vec<f64>; 7] = Default::default();
+    for record in &dataset.records {
+        if record.date < range.start || record.date > range.end {
+            continue;
+        }
+        if let Some(total) = record.total_ridership {
+            buckets[record.date.weekday().num_days_from_monday() as usize].push(total);
+        }
+    }
+    (0..7)
+        .map(|index| {
+            let values = &buckets[index];
+            WeekdayDistribution {
+                weekday: Weekday::try_from(index as u8).expect("valid weekday index"),
+                n: values.len(),
+                minimum: values.iter().copied().reduce(f64::min),
+                lower_quartile: quantile(values, 0.25),
+                median: quantile(values, 0.5),
+                upper_quartile: quantile(values, 0.75),
+                maximum: values.iter().copied().reduce(f64::max),
+            }
+        })
+        .collect()
 }
 
 /// Aggregate Smart Card subtypes by month. Shares use the subtype sum; the

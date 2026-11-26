@@ -9,7 +9,7 @@ use crate::client::CLIENT_SCRIPT;
 use crate::data::{
     BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
     component_waterfall, fare_mix_series, ncmc_share_series, parse_dataset, qr_mix_series,
-    quantile, smart_mix_series, summarise, weekday_baseline_series,
+    quantile, smart_mix_series, summarise, weekday_baseline_series, weekday_distribution_series,
 };
 use crate::payload::chart_payload_for;
 use crate::render::{chart_jump_markup, parse_query, range_action_links};
@@ -167,6 +167,32 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
     assert_eq!(target.lower_quartile, Some(112.5));
     assert_eq!(target.upper_quartile, Some(137.5));
     assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
+fn weekday_distribution_uses_observed_totals_without_zero_fill() {
+    let csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n\
+01-01-2024,40,10,20,10,20\n\
+02-01-2024,80,20,40,20,40\n\
+08-01-2024,80,20,40,20,40\n\
+09-01-2024,40,10,,10,20\n";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let days = weekday_distribution_series(
+        &dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 1, 14).unwrap(),
+        },
+    );
+    assert_eq!(days.len(), 7);
+    assert_eq!(days[0].n, 2);
+    assert_eq!(days[0].minimum, Some(100.0));
+    assert_eq!(days[0].median, Some(150.0));
+    assert_eq!(days[0].maximum, Some(200.0));
+    assert_eq!(days[1].n, 1);
+    assert_eq!(days[1].median, Some(200.0));
+    assert_eq!(days[2].n, 0);
+    assert_eq!(days[2].median, None);
 }
 
 #[test]
@@ -546,6 +572,11 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
             .unwrap()
             .contains("smartMix")
     );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("weekdayDistribution")
+    );
     assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);
     assert_eq!(
@@ -578,7 +609,7 @@ fn client_script_supports_direct_chart_selection() {
 fn charts_are_configured_to_fill_available_width() {
     assert!(STYLE.contains(".data-card-wrap{width:100%}"));
     assert!(STYLE.contains(
-        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg,.d3-smart-svg{display:block;width:100%"
+        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg,.d3-smart-svg,.d3-dist-svg{display:block;width:100%"
     ));
     assert!(CLIENT_SCRIPT.contains("window.addEventListener('resize'"));
 }

@@ -9,12 +9,13 @@ use topcoat::{
 use crate::charts::{
     CHARTS, Chart, baseline_chart_markup, calendar_markup, data_card_markup, escape_attr,
     fare_mix_chart_markup, line_chart_markup, ncmc_share_chart_markup, qr_mix_chart_markup,
-    smart_mix_chart_markup, waterfall_chart_markup,
+    smart_mix_chart_markup, waterfall_chart_markup, weekday_distribution_chart_markup,
 };
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
 use crate::data::{
     Dataset, DateRange, SOURCE_PAGE_URL, choose_range, component_waterfall, fare_mix_series,
     ncmc_share_series, qr_mix_series, record_index, smart_mix_series, weekday_baseline_series,
+    weekday_distribution_series,
 };
 use crate::payload::{chart_payload_for, range_presets};
 use crate::style::STYLE;
@@ -160,6 +161,9 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         Chart::NcmcShare => ncmc_share_chart_markup(&ncmc_share_series(&dataset, range)),
         Chart::QrMix => qr_mix_chart_markup(&qr_mix_series(&dataset, range)),
         Chart::SmartMix => smart_mix_chart_markup(&smart_mix_series(&dataset, range)),
+        Chart::WeekdayDistribution => {
+            weekday_distribution_chart_markup(&weekday_distribution_series(&dataset, range))
+        }
     };
     let start_date_selects = date_select_markup(
         "start-date",
