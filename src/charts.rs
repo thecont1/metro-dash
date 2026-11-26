@@ -872,20 +872,21 @@ pub fn baseline_chart_markup(points: &[WeekdayBaselinePoint], range: DateRange) 
 }
 
 pub fn format_count(value: f64) -> String {
-    let sign = if value < 0.0 { "-" } else { "" };
-    let absolute = value.abs();
-    let integer = absolute.trunc();
-    let grouped = format_number_full(integer);
-    let fraction = absolute - integer;
-    if fraction < 1e-9 {
-        format!("{sign}{grouped}")
+    let formatted = format!("{value:.1}");
+    let (integer, fraction) = formatted.split_once('.').unwrap_or((&formatted, "0"));
+    let negative = integer.starts_with('-');
+    let integer_value = integer.trim_start_matches('-').parse::<i64>().unwrap_or(0);
+    let grouped = format_number_full(integer_value as f64);
+    let grouped = if negative {
+        format!("-{grouped}")
     } else {
-        let fraction_label = format!("{fraction:.1}");
-        let decimal = fraction_label
-            .trim_start_matches('0')
-            .trim_end_matches('0')
-            .trim_end_matches('.');
-        format!("{sign}{grouped}{decimal}")
+        grouped
+    };
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        grouped
+    } else {
+        format!("{grouped}.{fraction}")
     }
 }
 
@@ -967,7 +968,7 @@ pub fn smart_mix_chart_markup(months: &[SmartMixMonth]) -> String {
     html
 }
 
-fn smart_mix_table(months: &[SmartMixMonth]) -> String {
+pub(crate) fn smart_mix_table(months: &[SmartMixMonth]) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View Smart Card subtype data table</summary><div class="table-scroll"><table><caption>Monthly Smart Card subtype counts and shares</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Parent Smart Cards</th><th scope="col">Stored Value</th><th scope="col">One Day Pass</th><th scope="col">Three Day Pass</th><th scope="col">Five Day Pass</th></tr></thead><tbody>"#,
     );
@@ -1162,10 +1163,10 @@ pub fn reporting_pulse_markup(months: &[ReportingPulseMonth]) -> String {
         html.push_str(&format!(
             r#"<div class="pulse-row html-anim" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"><span class="pulse-label">{}</span><span class="pulse-track"><i class="pulse-observed" style="width:{observed_width:.1}%"></i><i class="pulse-missing" style="left:{observed_width:.1}%;width:{:.1}%"></i></span><span class="pulse-value">{}/{}d · gap {}</span></div>"#,
             month.month.format("%b ’%y"),
+            100.0 - observed_width,
             month.observed_days,
             month.calendar_days,
-            month.longest_missing_run,
-            100.0 - observed_width
+            month.longest_missing_run
         ));
     }
     html.push_str(r#"</div><div class="pulse-legend"><span><i class="pulse-key observed"></i>Published</span><span><i class="pulse-key missing"></i>No published row</span></div><details class="accessible-data"><summary>View reporting completeness data table</summary><div class="table-scroll"><table><caption>Monthly reporting completeness</caption><thead><tr><th>Month</th><th>Observed</th><th>Calendar days</th><th>Coverage</th><th>Longest missing run</th></tr></thead><tbody>"#);
@@ -1523,7 +1524,7 @@ pub fn month_weekday_matrix_markup(matrix: &MonthWeekdayMatrix) -> String {
     html
 }
 
-fn month_weekday_matrix_table(matrix: &MonthWeekdayMatrix) -> String {
+pub(crate) fn month_weekday_matrix_table(matrix: &MonthWeekdayMatrix) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View month-by-weekday matrix data table</summary><div class="table-scroll"><table><caption>Median daily total and ratio to weekday baseline</caption><thead><tr><th scope="col">Month</th><th scope="col">Weekday</th><th scope="col">n</th><th scope="col">Median</th><th scope="col">Ratio</th></tr></thead><tbody>"#,
     );
@@ -1733,7 +1734,7 @@ pub fn weekend_signature_chart_markup(groups: &[WeekendSignature]) -> String {
     svg
 }
 
-fn weekend_signature_table(groups: &[WeekendSignature]) -> String {
+pub(crate) fn weekend_signature_table(groups: &[WeekendSignature]) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View weekend signature data table</summary><div class="table-scroll"><table><caption>Total distributions and aggregate fare-media shares by day group</caption><thead><tr><th scope="col">Day group</th><th scope="col">Complete/published</th><th scope="col">Median</th><th scope="col">IQR</th><th scope="col">Range</th><th scope="col">Smart Cards</th><th scope="col">NCMC</th><th scope="col">Tokens</th><th scope="col">QR</th><th scope="col">Group Ticket</th></tr></thead><tbody>"#,
     );
@@ -1895,7 +1896,7 @@ pub fn weekday_distribution_chart_markup(days: &[WeekdayDistribution]) -> String
     svg
 }
 
-fn weekday_distribution_table(days: &[WeekdayDistribution]) -> String {
+pub(crate) fn weekday_distribution_table(days: &[WeekdayDistribution]) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View weekday distribution data table</summary><div class="table-scroll"><table><caption>Observed total-ridership distributions by weekday</caption><thead><tr><th scope="col">Weekday</th><th scope="col">n</th><th scope="col">Minimum</th><th scope="col">Q1</th><th scope="col">Median</th><th scope="col">Q3</th><th scope="col">Maximum</th></tr></thead><tbody>"#,
     );
@@ -1977,7 +1978,7 @@ pub fn qr_mix_chart_markup(months: &[QrMixMonth]) -> String {
     html
 }
 
-fn qr_mix_table(months: &[QrMixMonth]) -> String {
+pub(crate) fn qr_mix_table(months: &[QrMixMonth]) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View QR channel data table</summary><div class="table-scroll"><table><caption>Monthly QR provider counts and shares</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Parent QR</th><th scope="col">Namma Metro</th><th scope="col">WhatsApp</th><th scope="col">Paytm</th><th scope="col">ONDC</th></tr></thead><tbody>"#,
     );
@@ -2141,7 +2142,7 @@ pub fn ncmc_share_chart_markup(weeks: &[NcmcShareWeek]) -> String {
     svg
 }
 
-fn ncmc_share_table(weeks: &[NcmcShareWeek]) -> String {
+pub(crate) fn ncmc_share_table(weeks: &[NcmcShareWeek]) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View NCMC share data table</summary><div class="table-scroll"><table><caption>Weekly NCMC count and share of Smart Cards plus NCMC</caption><thead><tr><th scope="col">Week</th><th scope="col">Complete days</th><th scope="col">NCMC</th><th scope="col">Smart + NCMC</th><th scope="col">NCMC share</th></tr></thead><tbody>"#,
     );
@@ -2304,7 +2305,7 @@ pub fn fare_mix_chart_markup(months: &[FareMixMonth]) -> String {
     svg
 }
 
-fn fare_mix_table(months: &[FareMixMonth]) -> String {
+pub(crate) fn fare_mix_table(months: &[FareMixMonth]) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View fare-media mix data table</summary><div class="table-scroll"><table><caption>Monthly observed totals and shares by fare medium</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Observed total</th><th scope="col">Smart Cards</th><th scope="col">NCMC</th><th scope="col">Tokens</th><th scope="col">QR</th><th scope="col">Group</th></tr></thead><tbody>"#,
     );
@@ -2493,7 +2494,7 @@ pub fn waterfall_chart_markup(waterfall: Option<&ComponentWaterfall>) -> String 
     svg
 }
 
-fn waterfall_table(waterfall: &ComponentWaterfall) -> String {
+pub(crate) fn waterfall_table(waterfall: &ComponentWaterfall) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View component waterfall data table</summary><div class="table-scroll"><table><caption>Fare-media actuals, references, and arithmetic deltas</caption><thead><tr><th scope="col">Category</th><th scope="col">Reference</th><th scope="col">Actual</th><th scope="col">Delta</th></tr></thead><tbody>"#,
     );
@@ -2518,7 +2519,7 @@ fn waterfall_table(waterfall: &ComponentWaterfall) -> String {
     table
 }
 
-fn baseline_table(points: &[WeekdayBaselinePoint]) -> String {
+pub(crate) fn baseline_table(points: &[WeekdayBaselinePoint]) -> String {
     let mut table = String::from(
         r#"<details class="accessible-data"><summary>View weekday baseline data table</summary><div class="table-scroll"><table><caption>Daily totals and rolling same-weekday baselines</caption><thead><tr><th scope="col">Date</th><th scope="col">Weekday</th><th scope="col">Total</th><th scope="col">Median</th><th scope="col">IQR low</th><th scope="col">IQR high</th><th scope="col">Delta</th><th scope="col">Status</th><th scope="col">Baseline n</th></tr></thead><tbody>"#,
     );

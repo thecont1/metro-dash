@@ -274,6 +274,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   const ensureScene = (className) => {
     chartShell.classList.add('d3-enhanced');
+    chartShell.querySelectorAll('.calendar-wrap,.line-chart-wrap,.baseline-wrap,.waterfall-wrap,.mix-wrap,.ncmc-wrap,.qr-ssr-wrap,.smart-ssr-wrap,.dist-ssr-wrap,.signature-ssr-wrap,.matrix-ssr-wrap,.variability-ssr-wrap,.pulse-ssr-wrap,.estimate-ssr-wrap,.fields-ssr-wrap')
+      .forEach(node => node.setAttribute('aria-hidden', 'true'));
     let scene = chartShell.querySelector(`.${className}`);
     if (!scene) {
       scene = document.createElement('div');
@@ -1670,6 +1672,25 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const renderMonthlyEstimates = () => renderHtmlPayloadChart('d3-estimate-scene', payload.charts.monthlyEstimates?.html, 'No monthly estimates are available in the selected range.');
   const renderFieldCompleteness = () => renderHtmlPayloadChart('d3-fields-scene', payload.charts.fieldCompleteness?.html, 'No field completeness data is available in the selected range.');
 
+  const syncAccessibleTable = (tableHtml) => {
+    chartShell.querySelectorAll(':scope > .accessible-data').forEach(node => node.remove());
+    if (tableHtml) chartShell.insertAdjacentHTML('beforeend', tableHtml);
+  };
+
+  const accessibleTableForChart = (slug) => {
+    const charts = payload.charts || {};
+    if (slug === 'weekday-baseline') return charts.weekdayBaseline?.tableHtml;
+    if (slug === 'component-waterfall') return charts.componentWaterfall?.tableHtml;
+    if (slug === 'fare-media-mix') return charts.fareMediaMix?.tableHtml;
+    if (slug === 'ncmc-share') return charts.ncmcShare?.tableHtml;
+    if (slug === 'qr-channel-mix') return charts.qrMix?.tableHtml;
+    if (slug === 'smart-card-mix') return charts.smartMix?.tableHtml;
+    if (slug === 'weekday-distributions') return charts.weekdayDistribution?.tableHtml;
+    if (slug === 'weekend-signatures') return charts.weekendSignatures?.tableHtml;
+    if (slug === 'month-weekday-matrix') return charts.monthWeekdayMatrix?.tableHtml;
+    return null;
+  };
+
   const renderActiveChart = (animate = true) => {
     hideTooltipImmediately();
     syncChartChrome();
@@ -1689,6 +1710,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     else if (activeChart === 'reporting-pulse') renderReportingPulse();
     else if (activeChart === 'monthly-estimates') renderMonthlyEstimates();
     else renderFieldCompleteness();
+    syncAccessibleTable(accessibleTableForChart(activeChart));
   };
 
   // The static site ships a wasm compute core; when present, range changes
@@ -1846,7 +1868,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
     chartStage.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
-      if (e.target.closest('.matrix-scroll')) return;
+      if (e.target.closest('.matrix-scroll,.d3-mix-scene,.d3-ncmc-scene,.d3-qr-scene,.d3-smart-scene')) return;
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
       touchActive = true;

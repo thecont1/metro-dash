@@ -1,10 +1,12 @@
 use serde::Serialize;
 
 use crate::charts::{
-    CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown,
-    field_completeness_markup, format_count, format_number_full, format_range, insight_line,
-    month_weekday_matrix_insight, monthly_estimates_markup, reporting_pulse_markup, signed_count,
-    variability_markup, weekday_distribution_insight, weekday_name, weekend_signature_insight,
+    CHARTS, band_index, band_label, baseline_insight, baseline_table, fare_media_breakdown,
+    fare_mix_table, field_completeness_markup, format_count, format_number_full, format_range,
+    insight_line, month_weekday_matrix_insight, month_weekday_matrix_table,
+    monthly_estimates_markup, ncmc_share_table, qr_mix_table, reporting_pulse_markup, signed_count,
+    smart_mix_table, variability_markup, waterfall_table, weekday_distribution_insight,
+    weekday_distribution_table, weekday_name, weekend_signature_insight, weekend_signature_table,
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
@@ -164,6 +166,7 @@ pub struct PayloadCharts {
 pub struct NcmcSharePayload {
     pub weeks: Vec<NcmcShareWeekPayload>,
     pub insight: String,
+    pub table_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -187,6 +190,7 @@ pub struct NcmcShareWeekPayload {
 pub struct FareMediaMixPayload {
     pub months: Vec<FareMixMonthPayload>,
     pub insight: String,
+    pub table_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -232,6 +236,7 @@ pub struct ComponentWaterfallPayload {
     pub delta_total_label: Option<String>,
     pub components: Vec<ComponentDeltaPayload>,
     pub insight: String,
+    pub table_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -261,6 +266,7 @@ pub struct WeekdayBaselinePayload {
     pub low_count: usize,
     pub insufficient_count: usize,
     pub insight: String,
+    pub table_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -297,6 +303,7 @@ pub struct MonthWeekdayMatrixPayload {
     pub months: Vec<MonthLabelPayload>,
     pub cells: Vec<MonthWeekdayCellPayload>,
     pub insight: String,
+    pub table_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -328,6 +335,7 @@ pub struct MonthWeekdayCellPayload {
 pub struct WeekendSignaturesPayload {
     pub groups: Vec<WeekendSignaturePayload>,
     pub insight: String,
+    pub table_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -356,6 +364,7 @@ pub struct WeekendSignaturePayload {
 pub struct WeekdayDistributionPayload {
     pub days: Vec<WeekdayDistributionDayPayload>,
     pub insight: String,
+    pub table_html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -624,6 +633,7 @@ fn month_weekday_matrix_payload(matrix: &MonthWeekdayMatrix) -> MonthWeekdayMatr
         })
         .collect();
     MonthWeekdayMatrixPayload {
+        table_html: month_weekday_matrix_table(matrix),
         months: matrix
             .months
             .iter()
@@ -706,6 +716,7 @@ fn weekend_signatures_payload(groups: &[WeekendSignature]) -> WeekendSignaturesP
     WeekendSignaturesPayload {
         groups: group_payloads,
         insight: weekend_signature_insight(groups),
+        table_html: weekend_signature_table(groups),
     }
 }
 
@@ -763,6 +774,7 @@ fn weekday_distribution_payload(days: &[WeekdayDistribution]) -> WeekdayDistribu
     WeekdayDistributionPayload {
         days: day_payloads,
         insight: weekday_distribution_insight(days),
+        table_html: weekday_distribution_table(days),
     }
 }
 
@@ -842,6 +854,7 @@ fn fare_mix_payload(months: &[FareMixMonth]) -> FareMediaMixPayload {
     FareMediaMixPayload {
         months: month_payloads,
         insight,
+        table_html: fare_mix_table(months),
     }
 }
 
@@ -888,6 +901,7 @@ fn ncmc_share_payload(weeks: &[NcmcShareWeek]) -> NcmcSharePayload {
     NcmcSharePayload {
         weeks: week_payloads,
         insight,
+        table_html: ncmc_share_table(weeks),
     }
 }
 
@@ -954,6 +968,7 @@ fn qr_mix_payload(months: &[QrMixMonth]) -> FareMediaMixPayload {
     FareMediaMixPayload {
         months: month_payloads,
         insight,
+        table_html: qr_mix_table(months),
     }
 }
 
@@ -1022,6 +1037,7 @@ fn smart_mix_payload(months: &[SmartMixMonth]) -> FareMediaMixPayload {
     FareMediaMixPayload {
         months: month_payloads,
         insight,
+        table_html: smart_mix_table(months),
     }
 }
 
@@ -1053,6 +1069,7 @@ fn component_waterfall_payload(
             delta_total_label: None,
             components: Vec::new(),
             insight: String::new(),
+            table_html: String::new(),
         };
     };
     let available = waterfall.reference_total.is_some() && !waterfall.components.is_empty();
@@ -1119,6 +1136,7 @@ fn component_waterfall_payload(
         delta_total_label: waterfall.delta_total.map(signed_number),
         components,
         insight,
+        table_html: waterfall_table(waterfall),
     }
 }
 
@@ -1140,6 +1158,7 @@ fn weekday_baseline_payload(points: &[WeekdayBaselinePoint]) -> WeekdayBaselineP
             .filter(|point| point.status == crate::data::BaselineStatus::Insufficient)
             .count(),
         insight: baseline_insight(points),
+        table_html: baseline_table(points),
     }
 }
 

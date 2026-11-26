@@ -4,13 +4,15 @@ use chrono::{Datelike, NaiveDate, Weekday};
 use reqwest::Client;
 use tokio::sync::RwLock;
 
-use crate::charts::{Chart, band_label, calendar_markup, line_chart_markup};
+use crate::charts::{
+    Chart, band_label, calendar_markup, format_count, line_chart_markup, reporting_pulse_markup,
+};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
-    BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
-    component_waterfall, fare_mix_series, field_completeness_grid, month_weekday_matrix,
-    monthly_estimate_series, ncmc_share_series, parse_dataset, qr_mix_series, quantile,
-    reporting_pulse_series, smart_mix_series, summarise, variability_ranking,
+    BaselineStatus, Dataset, DateRange, RangeSummary, ReportingPulseMonth, choose_range,
+    clean_number, component_waterfall, fare_mix_series, field_completeness_grid,
+    month_weekday_matrix, monthly_estimate_series, ncmc_share_series, parse_dataset, qr_mix_series,
+    quantile, reporting_pulse_series, smart_mix_series, summarise, variability_ranking,
     weekday_baseline_series, weekday_distribution_series, weekend_signature_series,
 };
 use crate::payload::chart_payload_for;
@@ -1025,4 +1027,60 @@ async fn every_response_carries_the_security_headers() {
         );
         assert!(csp.contains("object-src 'none'"), "on {uri}");
     }
+}
+
+#[test]
+fn format_count_rounds_the_complete_value_before_grouping() {
+    assert_eq!(format_count(1000.0), "1,000");
+    assert_eq!(format_count(1000.5), "1,000.5");
+    assert_eq!(format_count(10.96), "11");
+    assert_eq!(format_count(-10.96), "-11");
+    assert_eq!(format_count(0.49), "0.5");
+    assert_eq!(format_count(-0.49), "-0.5");
+}
+
+#[test]
+fn reporting_pulse_markup_binds_missing_width_and_counts_in_order() {
+    let month = ReportingPulseMonth {
+        month: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        calendar_days: 6,
+        observed_days: 3,
+        missing_days: 3,
+        coverage: 0.5,
+        longest_missing_run: 2,
+    };
+    let html = reporting_pulse_markup(&[month]);
+    assert!(html.contains("width:50.0%"));
+    assert!(html.contains("3/6d · gap 2"));
+}
+
+#[test]
+fn chart_payloads_include_accessible_tables_for_d3_charts() {
+    let dataset = fixture_dataset();
+    let payload = chart_payload_for(
+        &dataset,
+        DateRange {
+            start: dataset.min_date,
+            end: dataset.max_date,
+        },
+    );
+    let tables = [
+        &payload.charts.weekday_baseline.table_html,
+        &payload.charts.component_waterfall.table_html,
+        &payload.charts.fare_media_mix.table_html,
+        &payload.charts.ncmc_share.table_html,
+        &payload.charts.qr_mix.table_html,
+        &payload.charts.smart_mix.table_html,
+        &payload.charts.weekday_distribution.table_html,
+        &payload.charts.weekend_signatures.table_html,
+        &payload.charts.month_weekday_matrix.table_html,
+    ];
+    assert!(tables.iter().all(|html| html.contains("accessible-data")));
+    let serialized = serde_json::to_string(&payload).unwrap();
+    assert!(serialized.contains("tableHtml"));
+    assert!(CLIENT_SCRIPT.contains("syncAccessibleTable(accessibleTableForChart(activeChart))"));
+    assert!(
+        CLIENT_SCRIPT
+            .contains(".matrix-scroll,.d3-mix-scene,.d3-ncmc-scene,.d3-qr-scene,.d3-smart-scene")
+    );
 }
