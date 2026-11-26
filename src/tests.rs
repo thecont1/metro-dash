@@ -7,8 +7,8 @@ use tokio::sync::RwLock;
 use crate::charts::{Chart, band_label, calendar_markup};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
-    BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number, parse_dataset,
-    quantile, summarise, weekday_baseline_series,
+    BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
+    component_waterfall, parse_dataset, quantile, summarise, weekday_baseline_series,
 };
 use crate::payload::chart_payload_for;
 use crate::render::{chart_jump_markup, parse_query, range_action_links};
@@ -168,6 +168,95 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
 }
 
 #[test]
+fn component_waterfall_deltas_decompose_the_selected_day_exactly() {
+    let mut csv = String::from(
+        "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n",
+    );
+    let first_monday = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for (week, smart_card) in [60.0, 70.0, 80.0, 160.0, 90.0, 100.0, 110.0]
+        .iter()
+        .enumerate()
+    {
+        let date = first_monday + chrono::Duration::days(week as i64 * 7);
+        csv.push_str(&format!(
+            "{},{smart_card},10,10,10,10\n",
+            date.format("%d-%m-%Y")
+        ));
+    }
+    let dataset = parse_dataset(&csv, "fixture".into()).unwrap();
+    let selected = first_monday + chrono::Duration::days(21);
+    let waterfall = component_waterfall(&dataset, selected).unwrap();
+
+    assert_eq!(waterfall.baseline_n, 6);
+    assert_eq!(waterfall.reference_total, Some(125.0));
+    assert_eq!(waterfall.actual_total, 200.0);
+    assert_eq!(waterfall.delta_total, Some(75.0));
+    let smart_card = waterfall
+        .components
+        .iter()
+        .find(|component| component.key == "smart-card")
+        .unwrap();
+    assert_eq!(smart_card.reference, 85.0);
+    assert_eq!(smart_card.actual, 160.0);
+    assert_eq!(smart_card.delta, 75.0);
+    assert_eq!(smart_card.cumulative_start, 125.0);
+    assert_eq!(smart_card.cumulative_end, 200.0);
+    assert!(
+        waterfall
+            .components
+            .iter()
+            .skip(1)
+            .all(|component| component.delta == 0.0)
+    );
+}
+
+#[test]
+fn component_waterfall_uses_published_parent_totals_when_provider_sums_diverge() {
+    let mut csv = String::from(
+        "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR,QR Namma Metro,QR WhatsApp,QR Paytm,QR ONDC\n",
+    );
+    let first_monday = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for week in 0..5 {
+        let date = first_monday + chrono::Duration::days(week * 7);
+        // Parent QR is 100 while its complete provider split sums to 90.
+        csv.push_str(&format!(
+            "{},1000,100,200,10,100,40,30,10,10\n",
+            date.format("%d-%m-%Y")
+        ));
+    }
+    let dataset = parse_dataset(&csv, "fixture".into()).unwrap();
+    let selected = first_monday + chrono::Duration::days(14);
+    let record = dataset
+        .records
+        .iter()
+        .find(|record| record.date == selected)
+        .unwrap();
+    assert_eq!(
+        record.qr,
+        Some(90.0),
+        "normalisation prefers the complete provider split"
+    );
+    let waterfall = component_waterfall(&dataset, selected).unwrap();
+    let qr = waterfall
+        .components
+        .iter()
+        .find(|component| component.key == "qr")
+        .unwrap();
+    assert_eq!(qr.actual, 100.0);
+    assert_eq!(waterfall.actual_total, 1410.0);
+}
+
+#[test]
+fn component_waterfall_preserves_missing_component_semantics() {
+    let dataset = fixture_dataset();
+    let missing_group_ticket_day = NaiveDate::from_ymd_opt(2026, 1, 3).unwrap();
+    assert!(
+        component_waterfall(&dataset, missing_group_ticket_day).is_none(),
+        "incomplete selected-day components should make the waterfall unavailable"
+    );
+}
+
+#[test]
 fn query_parser_handles_malformed_values_without_panicking() {
     let query = parse_query("start=nope&end=2026-01-03&chart=commute-casual&ignored=yes");
     assert_eq!(query.start.as_deref(), Some("nope"));
@@ -230,6 +319,9 @@ fn chart_jump_lists_every_registered_chart_and_marks_current() {
     assert!(
         markup.contains(r#"<option value="weekday-baseline">Unusual for its Weekday?</option>"#)
     );
+    assert!(markup.contains(
+        r#"<option value="component-waterfall">What Accounts for the Difference?</option>"#
+    ));
 }
 
 #[test]
@@ -328,6 +420,12 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
             .unwrap()
             .contains("weekdayBaseline")
     );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("componentWaterfall")
+    );
+    assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);
     assert_eq!(
         payload.charts.weekday_baseline.points.len(),

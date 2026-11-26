@@ -8,11 +8,12 @@ use topcoat::{
 
 use crate::charts::{
     CHARTS, Chart, baseline_chart_markup, calendar_markup, data_card_markup, escape_attr,
-    line_chart_markup,
+    line_chart_markup, waterfall_chart_markup,
 };
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
 use crate::data::{
-    Dataset, DateRange, SOURCE_PAGE_URL, choose_range, record_index, weekday_baseline_series,
+    Dataset, DateRange, SOURCE_PAGE_URL, choose_range, component_waterfall, record_index,
+    weekday_baseline_series,
 };
 use crate::payload::{chart_payload_for, range_presets};
 use crate::style::STYLE;
@@ -148,6 +149,9 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         Chart::CommuteCasual => line_chart_markup(&summary),
         Chart::WeekdayBaseline => {
             baseline_chart_markup(&weekday_baseline_series(&dataset, range), range)
+        }
+        Chart::ComponentWaterfall => {
+            waterfall_chart_markup(component_waterfall(&dataset, range.end).as_ref())
         }
     };
     let start_date_selects = date_select_markup(

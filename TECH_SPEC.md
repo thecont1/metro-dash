@@ -168,6 +168,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 2. **Calendar heatmap (`calendar`)** — Daily total ridership, one cell per day, percentile colour bands
 3. **Weekday line chart (`commute-casual`)** — Average commuter vs casual ridership by weekday
 4. **Weekday baseline chart (`weekday-baseline`)** — Daily totals compared with a rolling same-weekday median and interquartile band
+5. **Component waterfall (`component-waterfall`)** — Fare-media arithmetic contributions to the selected day's difference from its same-weekday reference
 
 ### Adding a new chart
 
@@ -198,6 +199,13 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 - D3: Time-scaled SVG with keyboard-focusable points and tooltips
 - Baseline window: up to six earlier and six later published reports with the same weekday; the current day is excluded
 - Missing reports are omitted rather than treated as zero; the observed daily line breaks across gaps longer than seven days
+
+### What Accounts for the Difference?
+
+- SSR: Static SVG waterfall with reference/selected total anchors, floating component deltas, and an accessible data table
+- D3: Animated floating bars with keyboard-focusable tooltips
+- Reference construction: medians of the same nearby same-weekday reports across all five published parent categories, requiring complete Smart Card, NCMC, Token, QR, and Group Ticket values; leaf/provider sums are deliberately not substituted because QR provider splits do not always reconcile with `Total QR`
+- The reference total is the sum of category medians, so reference + deltas = selected-day total exactly
 
 ## Client-side architecture
 

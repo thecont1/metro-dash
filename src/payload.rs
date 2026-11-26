@@ -5,8 +5,9 @@ use crate::charts::{
     format_range, insight_line, weekday_name,
 };
 use crate::data::{
-    BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, Dataset, DateRange, RangeSummary, RidershipRecord,
-    WeekdayBaselinePoint, last_n_months_range, record_index, summarise, weekday_baseline_series,
+    BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
+    RangeSummary, RidershipRecord, WeekdayBaselinePoint, component_waterfall, last_n_months_range,
+    record_index, summarise, weekday_baseline_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -138,6 +139,43 @@ pub struct PayloadCharts {
     pub calendar: CalendarPayload,
     pub commute_casual: CommuteCasualPayload,
     pub weekday_baseline: WeekdayBaselinePayload,
+    pub component_waterfall: ComponentWaterfallPayload,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentWaterfallPayload {
+    pub available: bool,
+    pub message: Option<String>,
+    pub date: String,
+    pub date_display: String,
+    pub weekday: &'static str,
+    pub baseline_n: usize,
+    pub reference_total: Option<f64>,
+    pub reference_total_label: Option<String>,
+    pub actual_total: f64,
+    pub actual_total_label: String,
+    pub delta_total: Option<f64>,
+    pub delta_total_label: Option<String>,
+    pub components: Vec<ComponentDeltaPayload>,
+    pub insight: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentDeltaPayload {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub reference: f64,
+    pub reference_label: String,
+    pub actual: f64,
+    pub actual_label: String,
+    pub delta: f64,
+    pub delta_label: String,
+    pub cumulative_start: f64,
+    pub cumulative_end: f64,
+    pub positive: bool,
+    pub tooltip: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -245,6 +283,8 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let summary = summarise(dataset, range);
     let baseline_points = weekday_baseline_series(dataset, range);
     let weekday_baseline = weekday_baseline_payload(&baseline_points);
+    let waterfall = component_waterfall(dataset, range.end);
+    let component_waterfall = component_waterfall_payload(waterfall.as_ref(), range.end);
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -297,6 +337,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 insight: insight_line(&summary),
             },
             weekday_baseline,
+            component_waterfall,
         },
         presets: range_presets(dataset)
             .iter()
@@ -316,6 +357,107 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 method: definition.method,
             })
             .collect(),
+    }
+}
+
+fn signed_number(value: f64) -> String {
+    if value > 0.0 {
+        format!("+{}", format_number_full(value))
+    } else {
+        format_number_full(value)
+    }
+}
+
+fn component_waterfall_payload(
+    waterfall: Option<&ComponentWaterfall>,
+    date: NaiveDate,
+) -> ComponentWaterfallPayload {
+    let date_display = date.format("%A, %-d %B %Y").to_string();
+    let Some(waterfall) = waterfall else {
+        return ComponentWaterfallPayload {
+            available: false,
+            message: Some(
+                "The selected day does not have complete Smart Card, NCMC, Token, QR, and Group Ticket components."
+                    .to_string(),
+            ),
+            date: date.to_string(),
+            date_display,
+            weekday: weekday_name(date.weekday()),
+            baseline_n: 0,
+            reference_total: None,
+            reference_total_label: None,
+            actual_total: 0.0,
+            actual_total_label: "—".to_string(),
+            delta_total: None,
+            delta_total_label: None,
+            components: Vec::new(),
+            insight: String::new(),
+        };
+    };
+    let available = waterfall.reference_total.is_some() && !waterfall.components.is_empty();
+    let message = (!available).then(|| {
+        format!(
+            "Only {} nearby same-weekday reports have complete fare-media components; at least {} are required.",
+            waterfall.baseline_n, BASELINE_MIN_OBSERVATIONS
+        )
+    });
+    let components = waterfall
+        .components
+        .iter()
+        .map(|component| ComponentDeltaPayload {
+            key: component.key,
+            label: component.label,
+            reference: component.reference,
+            reference_label: format_number_full(component.reference),
+            actual: component.actual,
+            actual_label: format_number_full(component.actual),
+            delta: component.delta,
+            delta_label: signed_number(component.delta),
+            cumulative_start: component.cumulative_start,
+            cumulative_end: component.cumulative_end,
+            positive: component.delta >= 0.0,
+            tooltip: format!(
+                "{}: {} actual vs {} reference; delta {}",
+                component.label,
+                format_number_full(component.actual),
+                format_number_full(component.reference),
+                signed_number(component.delta)
+            ),
+        })
+        .collect::<Vec<_>>();
+    let insight = if available {
+        let total_delta = waterfall.delta_total.unwrap_or(0.0);
+        let mut contributors = waterfall.components.clone();
+        contributors.sort_by(|a, b| b.delta.abs().total_cmp(&a.delta.abs()));
+        let top = contributors
+            .iter()
+            .take(2)
+            .map(|component| format!("{} {}", component.label, signed_number(component.delta)))
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!(
+            "Total difference {}. Largest component movements: {}.",
+            signed_number(total_delta),
+            top
+        )
+    } else {
+        String::new()
+    };
+    ComponentWaterfallPayload {
+        available,
+        message,
+        date: waterfall.date.to_string(),
+        date_display,
+        weekday: weekday_name(waterfall.weekday),
+        baseline_n: waterfall.baseline_n,
+        reference_total: waterfall.reference_total,
+        reference_total_label: waterfall.reference_total.map(format_number_full),
+        actual_total: waterfall.actual_total,
+        actual_total_label: format_number_full(waterfall.actual_total),
+        delta_total: waterfall.delta_total,
+        delta_total_label: waterfall.delta_total.map(signed_number),
+        components,
+        insight,
     }
 }
 

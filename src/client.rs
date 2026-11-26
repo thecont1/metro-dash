@@ -38,8 +38,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let computeState = 'pending';
   let computeSettled = null;
 
-  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true };
-  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline'];
+  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true };
+  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall'];
   if (chartJump) {
     chartJump.querySelectorAll('option').forEach((option) => {
       if (!chartRegistry[option.value]) option.remove();
@@ -106,6 +106,16 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     if (abs >= 1_000) return `${Math.round(value / 1_000)}k`;
     return `${Math.round(value)}`;
   };
+  const compactAxis = (value, spread) => {
+    if (value == null || Number.isNaN(value)) return '—';
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) {
+      const decimals = spread < 250_000 ? 2 : 1;
+      return `${(value / 1_000_000).toFixed(decimals)}M`;
+    }
+    if (abs >= 1_000) return `${Math.round(value / 1_000)}k`;
+    return `${Math.round(value)}`;
+  };
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const _bandColors = Array.from({length: 10}, (_, i) => cssVar(`--band-${i}`));
   const _paperColor = cssVar('--paper');
@@ -145,6 +155,13 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     tooltip.style.transition = 'opacity .4s ease-in';
     tooltip.style.opacity = '0';
     _tooltipTimer = setTimeout(() => { tooltip.hidden = true; }, 400);
+  };
+  const hideTooltipImmediately = () => {
+    if (!tooltip) return;
+    if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
+    tooltip.style.transition = 'none';
+    tooltip.style.opacity = '0';
+    tooltip.hidden = true;
   };
   const bindTooltip = (selection) => {
     selection
@@ -738,6 +755,130 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+  const renderWaterfall = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-waterfall-scene');
+    const waterfall = payload.charts.componentWaterfall;
+    const components = waterfall?.components || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.waterfall-empty').remove();
+    if (!waterfall?.available || !components.length) {
+      scene.append('p').attr('class', 'waterfall-empty').text(waterfall?.message || 'Waterfall unavailable for the selected day.');
+      choreograph(scene.node());
+      return;
+    }
+
+    const width = 1100, height = 360, left = 70, right = 34, top = 38, bottom = 62;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const values = [waterfall.referenceTotal, waterfall.actualTotal, ...components.flatMap(d => [d.cumulativeStart, d.cumulativeEnd])].filter(v => v != null);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values, 1);
+    const spread = Math.max(1, maxValue - minValue);
+    const yMin = Math.max(0, minValue - spread * 0.12);
+    const yMax = maxValue + spread * 0.12;
+    const y = D3.scaleLinear().domain([yMin, yMax]).range([top + plotHeight, top]);
+    const slots = components.length + 2;
+    const step = plotWidth / slots;
+    const x = index => left + step * (index + 0.5);
+    const barWidth = Math.max(44, Math.min(78, step * 0.56));
+    const svg = scene.append('svg')
+      .attr('class', 'd3-waterfall-svg waterfall-chart')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', `Fare-media component waterfall for ${waterfall.dateDisplay}`);
+
+    const axisTicks = D3.range(5).map(i => yMin + (yMax - yMin) * i / 4);
+    svg.selectAll('.d3-grid-line').data(axisTicks).join('line')
+      .attr('class', 'd3-grid-line')
+      .attr('x1', left).attr('x2', width - right)
+      .attr('y1', d => y(d)).attr('y2', d => y(d));
+    svg.selectAll('.d3-y-label').data(axisTicks).join('text')
+      .attr('class', 'd3-y-label')
+      .attr('x', left - 10).attr('text-anchor', 'end')
+      .attr('y', d => y(d) + 4)
+      .text(d => compactAxis(d, yMax - yMin));
+
+    const referenceX = x(0);
+    const actualX = x(slots - 1);
+    const referenceY = y(waterfall.referenceTotal);
+    const actualY = y(waterfall.actualTotal);
+    svg.append('line').attr('class', 'waterfall-total-anchor')
+      .attr('x1', referenceX - barWidth / 2).attr('x2', referenceX + barWidth / 2)
+      .attr('y1', referenceY).attr('y2', referenceY);
+    svg.append('text').attr('class', 'waterfall-total-label')
+      .attr('x', referenceX).attr('y', referenceY - 10).attr('text-anchor', 'middle')
+      .text(compact(waterfall.referenceTotal));
+    svg.append('text').attr('class', 'd3-x-label waterfall-x-label total')
+      .attr('x', referenceX).attr('y', height - 24).attr('text-anchor', 'middle').text('Reference');
+
+    const groups = svg.selectAll('.d3-waterfall-group').data(components, d => d.key).join('g')
+      .attr('class', d => `d3-waterfall-group ${d.positive ? 'positive' : 'negative'}`)
+      .attr('aria-label', d => d.tooltip)
+      .attr('data-tooltip', d => d.tooltip)
+      .attr('transform', (d, i) => `translate(${x(i + 1)},0)`);
+    groups.selectAll('rect.waterfall-hit').data(d => [d]).join('rect')
+      .attr('class', 'waterfall-hit')
+      .attr('x', -barWidth / 2).attr('y', top)
+      .attr('width', barWidth).attr('height', plotHeight)
+      .attr('fill', 'transparent');
+    groups.selectAll('rect.waterfall-bar').data(d => [d]).join('rect')
+      .attr('class', d => `waterfall-bar ${d.positive ? 'positive' : 'negative'}`)
+      .attr('x', -barWidth / 2)
+      .attr('width', barWidth)
+      .transition().duration(canAnimate && animate ? 360 : 0)
+      .attr('y', d => Math.min(y(d.cumulativeStart), y(d.cumulativeEnd)))
+      .attr('height', d => Math.max(2, Math.abs(y(d.cumulativeStart) - y(d.cumulativeEnd))));
+    groups.selectAll('text.waterfall-delta').data(d => [d]).join('text')
+      .attr('class', d => `waterfall-delta ${d.positive ? 'positive' : 'negative'}`)
+      .attr('text-anchor', 'middle')
+      .transition().duration(canAnimate && animate ? 360 : 0)
+      .attr('y', d => {
+        const topY = Math.min(y(d.cumulativeStart), y(d.cumulativeEnd));
+        const barHeight = Math.max(2, Math.abs(y(d.cumulativeStart) - y(d.cumulativeEnd)));
+        return d.positive ? topY - 8 : topY + barHeight + 15;
+      })
+      .text(d => d.deltaLabel);
+    groups.selectAll('text.waterfall-x-label').data(d => [d]).join('text')
+      .attr('class', 'd3-x-label waterfall-x-label')
+      .attr('text-anchor', 'middle')
+      .attr('y', height - 24)
+      .text(d => d.label);
+    bindTooltip(groups);
+
+    svg.selectAll('.waterfall-connector').data(components.slice(0, -1), d => d.key).join('line')
+      .attr('class', 'waterfall-connector')
+      .attr('x1', (d, i) => x(i + 1) + barWidth / 2)
+      .attr('x2', (d, i) => x(i + 2) - barWidth / 2)
+      .attr('y1', d => y(d.cumulativeEnd))
+      .attr('y2', d => y(d.cumulativeEnd));
+    const last = components[components.length - 1];
+    svg.append('line').attr('class', 'waterfall-connector')
+      .attr('x1', x(components.length) + barWidth / 2)
+      .attr('x2', actualX - barWidth / 2)
+      .attr('y1', y(last.cumulativeEnd)).attr('y2', y(last.cumulativeEnd));
+    svg.append('line').attr('class', 'waterfall-total-anchor actual')
+      .attr('x1', actualX - barWidth / 2).attr('x2', actualX + barWidth / 2)
+      .attr('y1', actualY).attr('y2', actualY);
+    svg.append('text').attr('class', 'waterfall-total-label')
+      .attr('x', actualX).attr('y', actualY - 10).attr('text-anchor', 'middle')
+      .text(compact(waterfall.actualTotal));
+    svg.append('text').attr('class', 'd3-x-label waterfall-x-label total')
+      .attr('x', actualX).attr('y', height - 24).attr('text-anchor', 'middle').text('Selected day');
+
+    svg.append('text')
+      .attr('class', 'baseline-svg-insight')
+      .attr('x', left).attr('y', 16)
+      .text(waterfall.insight || '');
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend waterfall-svg-legend').attr('transform', `translate(${width - right - 310},8)`);
+    [['positive', 'Increase', 0], ['negative', 'Decrease', 100], ['n', `n = ${waterfall.baselineN}`, 200]].forEach(([key, label, dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      if (key !== 'n') item.append('circle').attr('class', `legend-mark-dot ${key === 'positive' ? 'high' : 'low'}`).attr('cx', 7).attr('cy', 2).attr('r', 4.5);
+      item.append('text').attr('x', key === 'n' ? 0 : 18).attr('y', 6).text(label);
+    });
+    choreograph(scene.node());
+  };
+
   const buildDataCardHTML = (card) => {
     const endIdx = dates.indexOf(payload.range.end);
     const prevDisabled = endIdx <= 0;
@@ -836,11 +977,13 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   };
 
   const renderActiveChart = (animate = true) => {
+    hideTooltipImmediately();
     syncChartChrome();
     if (activeChart === 'data-card') renderDataCard(animate);
     else if (activeChart === 'calendar') renderCalendar(animate);
     else if (activeChart === 'commute-casual') renderLine(animate);
-    else renderBaseline(animate);
+    else if (activeChart === 'weekday-baseline') renderBaseline(animate);
+    else renderWaterfall(animate);
   };
 
   // The static site ships a wasm compute core; when present, range changes

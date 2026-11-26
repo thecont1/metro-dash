@@ -103,6 +103,36 @@ pub struct WeekdayMetric {
 pub const BASELINE_WINDOW: usize = 12;
 pub const BASELINE_MIN_OBSERVATIONS: usize = 4;
 
+pub const WATERFALL_CATEGORIES: [(&str, &str); 5] = [
+    ("smart-card", "Smart Cards"),
+    ("ncmc", "NCMC"),
+    ("token", "Tokens"),
+    ("qr", "QR"),
+    ("group-ticket", "Group Ticket"),
+];
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentDelta {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub reference: f64,
+    pub actual: f64,
+    pub delta: f64,
+    pub cumulative_start: f64,
+    pub cumulative_end: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentWaterfall {
+    pub date: NaiveDate,
+    pub weekday: Weekday,
+    pub baseline_n: usize,
+    pub reference_total: Option<f64>,
+    pub actual_total: f64,
+    pub delta_total: Option<f64>,
+    pub components: Vec<ComponentDelta>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaselineStatus {
     High,
@@ -677,4 +707,112 @@ pub fn weekday_baseline_series(dataset: &Dataset, range: DateRange) -> Vec<Weekd
             })
         })
         .collect()
+}
+
+fn raw_parent_value(record: &RidershipRecord, header: Option<&str>) -> Option<f64> {
+    clean_number(
+        record
+            .raw_fields
+            .get(header?)
+            .map(std::string::String::as_str),
+    )
+}
+
+fn parent_components(dataset: &Dataset, record: &RidershipRecord) -> Option<[f64; 5]> {
+    let mapping = &dataset.field_mapping;
+    Some([
+        raw_parent_value(record, mapping.smart_card.as_deref())?,
+        raw_parent_value(record, mapping.ncmc.as_deref())?,
+        raw_parent_value(record, mapping.token.as_deref())?,
+        raw_parent_value(record, mapping.qr.as_deref())?,
+        raw_parent_value(record, mapping.group_ticket.as_deref())?,
+    ])
+}
+
+/// Build a component-level waterfall for `date` against nearby reports from
+/// the same weekday. The reference value for every category is the median of
+/// the same candidate reports, so the displayed arithmetic reconciles exactly:
+/// reference total + category deltas = selected-day total. Unlike the derived
+/// totals used elsewhere, these are the published parent-category totals; QR
+/// provider splits do not always reconcile with their parent in the source.
+pub fn component_waterfall(dataset: &Dataset, date: NaiveDate) -> Option<ComponentWaterfall> {
+    let record = dataset.records.iter().find(|record| record.date == date)?;
+    let actual = parent_components(dataset, record)?;
+    let half_window = BASELINE_WINDOW / 2;
+    let complete_nearby = |candidate: &&RidershipRecord| {
+        candidate.date != record.date
+            && candidate.date.weekday() == record.date.weekday()
+            && parent_components(dataset, candidate).is_some()
+    };
+    let prior: Vec<&RidershipRecord> = dataset
+        .records
+        .iter()
+        .rev()
+        .filter(|candidate| candidate.date < record.date)
+        .filter(complete_nearby)
+        .take(half_window)
+        .collect();
+    let following: Vec<&RidershipRecord> = dataset
+        .records
+        .iter()
+        .filter(|candidate| candidate.date > record.date)
+        .filter(complete_nearby)
+        .take(half_window)
+        .collect();
+    let nearby: Vec<&RidershipRecord> = prior.into_iter().chain(following).collect();
+    let baseline_n = nearby.len();
+    let actual_total: f64 = actual.iter().sum();
+    if baseline_n < BASELINE_MIN_OBSERVATIONS {
+        return Some(ComponentWaterfall {
+            date,
+            weekday: date.weekday(),
+            baseline_n,
+            reference_total: None,
+            actual_total,
+            delta_total: None,
+            components: Vec::new(),
+        });
+    }
+
+    let mut references = [0.0; 5];
+    for (index, reference) in references.iter_mut().enumerate() {
+        let values: Vec<f64> = nearby
+            .iter()
+            .filter_map(|candidate| {
+                parent_components(dataset, candidate).map(|components| components[index])
+            })
+            .collect();
+        *reference = quantile(&values, 0.5)?;
+    }
+    let reference_total: f64 = references.iter().sum();
+    let mut cumulative = reference_total;
+    let components = WATERFALL_CATEGORIES
+        .iter()
+        .enumerate()
+        .map(|(index, (key, label))| {
+            let reference = references[index];
+            let actual_value = actual[index];
+            let delta = actual_value - reference;
+            let cumulative_start = cumulative;
+            cumulative += delta;
+            ComponentDelta {
+                key,
+                label,
+                reference,
+                actual: actual_value,
+                delta,
+                cumulative_start,
+                cumulative_end: cumulative,
+            }
+        })
+        .collect::<Vec<_>>();
+    Some(ComponentWaterfall {
+        date,
+        weekday: date.weekday(),
+        baseline_n,
+        reference_total: Some(reference_total),
+        actual_total,
+        delta_total: Some(actual_total - reference_total),
+        components,
+    })
 }

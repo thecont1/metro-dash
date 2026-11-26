@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
-    BaselineStatus, Dataset, DateRange, RangeSummary, RidershipRecord, WeekdayBaselinePoint,
-    WeekdayMetric,
+    BaselineStatus, ComponentWaterfall, Dataset, DateRange, RangeSummary, RidershipRecord,
+    WeekdayBaselinePoint, WeekdayMetric,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -14,6 +14,7 @@ pub enum Chart {
     Calendar,
     CommuteCasual,
     WeekdayBaseline,
+    ComponentWaterfall,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -25,7 +26,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 4] = [
+pub static CHARTS: [ChartDefinition; 5] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -53,6 +54,13 @@ pub static CHARTS: [ChartDefinition; 4] = [
         title: "Unusual for its Weekday?",
         deck: "Daily totals derived from fare media, compared with nearby reports from the same weekday.",
         method: "Each point is a daily total derived from published fare-media components. The band is the interquartile range of up to 6 earlier and 6 later published reports from the same weekday; the line is their median. At least 4 nearby reports are required. The current day is never included in its own baseline, and missing reports are not treated as zero.",
+    },
+    ChartDefinition {
+        chart: Chart::ComponentWaterfall,
+        slug: "component-waterfall",
+        title: "What Accounts for the Difference?",
+        deck: "Fare-media contributions to the selected day's difference from its same-weekday reference.",
+        method: "Uses the end date and the published parent totals. Each reference is the median of up to 6 earlier and 6 later same-weekday reports with complete components; provider sums are not substituted because QR splits can diverge. Bars sum exactly to the total difference — arithmetic decomposition, not causal attribution. The axis is zoomed to make movements visible.",
     },
 ];
 
@@ -632,7 +640,6 @@ pub fn baseline_chart_markup(points: &[WeekdayBaselinePoint], range: DateRange) 
     let y_min = (min_value - spread * 0.08).max(0.0);
     let y_max = max_value + spread * 0.08;
     let y = |value: f64| TOP + plot_height - (value - y_min) / (y_max - y_min) * plot_height;
-
     let mut svg = format!(
         r#"<div class="baseline-wrap"><svg class="baseline-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Daily ridership compared with rolling same-weekday baseline"><g class="grid">"#
     );
@@ -756,6 +763,203 @@ pub fn baseline_chart_markup(points: &[WeekdayBaselinePoint], range: DateRange) 
     svg.push_str(&baseline_table(points));
     svg.push_str("</div>");
     svg
+}
+
+fn signed_full(value: f64) -> String {
+    if value > 0.0 {
+        format!("+{}", format_number_full(value))
+    } else {
+        format_number_full(value)
+    }
+}
+
+pub fn waterfall_insight(waterfall: &ComponentWaterfall) -> String {
+    let Some(total_delta) = waterfall.delta_total else {
+        return String::new();
+    };
+    let mut contributors = waterfall.components.clone();
+    contributors.sort_by(|a, b| b.delta.abs().total_cmp(&a.delta.abs()));
+    let top = contributors
+        .iter()
+        .take(2)
+        .map(|component| format!("{} {}", component.label, signed_full(component.delta)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!(
+        "Total difference {}. Largest component movements: {}.",
+        signed_full(total_delta),
+        top
+    )
+}
+
+pub fn waterfall_chart_markup(waterfall: Option<&ComponentWaterfall>) -> String {
+    let Some(waterfall) = waterfall else {
+        return r#"<div class="waterfall-wrap"><p class="waterfall-empty">The selected day does not have complete fare-media components.</p></div>"#.to_string();
+    };
+    if waterfall.reference_total.is_none() || waterfall.components.is_empty() {
+        return format!(
+            r#"<div class="waterfall-wrap"><p class="waterfall-empty">Only {} nearby same-weekday reports have complete components; at least 4 are required.</p></div>"#,
+            waterfall.baseline_n
+        );
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 360.0;
+    const LEFT: f64 = 70.0;
+    const RIGHT: f64 = 34.0;
+    const TOP: f64 = 38.0;
+    const BOTTOM: f64 = 62.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let plot_height = HEIGHT - TOP - BOTTOM;
+    let reference_total = waterfall
+        .reference_total
+        .expect("available waterfall has reference");
+    let mut values = vec![reference_total, waterfall.actual_total];
+    for component in &waterfall.components {
+        values.push(component.cumulative_start);
+        values.push(component.cumulative_end);
+    }
+    let min_value = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+    let max_value = values.iter().copied().reduce(f64::max).unwrap_or(1.0);
+    let spread = (max_value - min_value).max(1.0);
+    let y_min = (min_value - spread * 0.12).max(0.0);
+    let y_max = max_value + spread * 0.12;
+    let y = |value: f64| TOP + plot_height - (value - y_min) / (y_max - y_min) * plot_height;
+    let axis_label = |value: f64| {
+        if value.abs() >= 1_000_000.0 {
+            let decimals = if y_max - y_min < 250_000.0 { 2 } else { 1 };
+            format!("{:.*}M", decimals, value / 1_000_000.0)
+        } else {
+            compact_number(value)
+        }
+    };
+    let slots = waterfall.components.len() + 2;
+    let step = plot_width / slots as f64;
+    let x = |index: usize| LEFT + step * (index as f64 + 0.5);
+    let bar_width = (step * 0.56).clamp(44.0, 78.0);
+
+    let mut svg = format!(
+        r#"<div class="waterfall-wrap"><svg class="waterfall-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Fare-media component waterfall for {}"><g class="grid">"#,
+        escape_attr(&waterfall.date.format("%A, %-d %B %Y").to_string())
+    );
+    for tick in 0..=4 {
+        let value = y_min + (y_max - y_min) * tick as f64 / 4.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 10.0,
+            yy + 4.0,
+            axis_label(value)
+        ));
+    }
+
+    // Reference and selected totals are horizontal anchors rather than bars:
+    // the vertical scale is zoomed so category movements remain visible.
+    let reference_y = y(reference_total);
+    let actual_y = y(waterfall.actual_total);
+    let reference_x = x(0);
+    let actual_x = x(slots - 1);
+    svg.push_str(&format!(
+        r#"<line class="waterfall-total-anchor" x1="{:.1}" x2="{:.1}" y1="{reference_y:.1}" y2="{reference_y:.1}"></line><text class="waterfall-total-label" x="{reference_x:.1}" y="{:.1}" text-anchor="middle">{}</text>"#,
+        reference_x - bar_width / 2.0,
+        reference_x + bar_width / 2.0,
+        reference_y - 10.0,
+        compact_number(reference_total)
+    ));
+
+    for (index, component) in waterfall.components.iter().enumerate() {
+        let xx = x(index + 1);
+        let start_y = y(component.cumulative_start);
+        let end_y = y(component.cumulative_end);
+        let top_y = start_y.min(end_y);
+        let height = (start_y - end_y).abs().max(2.0);
+        let class = if component.delta >= 0.0 {
+            "positive"
+        } else {
+            "negative"
+        };
+        let label = format!(
+            "{}: {} actual vs {} reference; delta {}",
+            component.label,
+            format_number_full(component.actual),
+            format_number_full(component.reference),
+            signed_full(component.delta)
+        );
+        let safe = escape_attr(&label);
+        svg.push_str(&format!(
+            r#"<rect class="waterfall-hit" x="{:.1}" y="{TOP}" width="{bar_width}" height="{plot_height}" fill="transparent" tabindex="0" role="img" aria-label="{safe}" data-tooltip="{safe}"></rect><rect class="waterfall-bar {class}" x="{:.1}" y="{top_y:.1}" width="{bar_width}" height="{height:.1}" aria-hidden="true"></rect><text class="waterfall-delta {class}" x="{xx:.1}" y="{:.1}" text-anchor="middle">{}</text><text class="x-label waterfall-x-label" x="{xx:.1}" y="{}" text-anchor="middle">{}</text>"#,
+            xx - bar_width / 2.0,
+            xx - bar_width / 2.0,
+            if component.delta >= 0.0 { top_y - 8.0 } else { top_y + height + 15.0 },
+            signed_full(component.delta),
+            HEIGHT - 24.0,
+            component.label
+        ));
+        if index + 1 < waterfall.components.len() {
+            let next_x = x(index + 2);
+            svg.push_str(&format!(
+                r#"<line class="waterfall-connector" x1="{:.1}" x2="{:.1}" y1="{end_y:.1}" y2="{end_y:.1}"></line>"#,
+                xx + bar_width / 2.0,
+                next_x - bar_width / 2.0
+            ));
+        }
+    }
+    if let Some(last) = waterfall.components.last() {
+        let last_x = x(waterfall.components.len());
+        svg.push_str(&format!(
+            r#"<line class="waterfall-connector" x1="{:.1}" x2="{:.1}" y1="{:.1}" y2="{:.1}"></line>"#,
+            last_x + bar_width / 2.0,
+            actual_x - bar_width / 2.0,
+            y(last.cumulative_end),
+            y(last.cumulative_end)
+        ));
+    }
+    svg.push_str(&format!(
+        r#"<line class="waterfall-total-anchor actual" x1="{:.1}" x2="{:.1}" y1="{actual_y:.1}" y2="{actual_y:.1}"></line><text class="waterfall-total-label" x="{actual_x:.1}" y="{:.1}" text-anchor="middle">{}</text><text class="x-label waterfall-x-label total" x="{reference_x:.1}" y="{}" text-anchor="middle">Reference</text><text class="x-label waterfall-x-label total" x="{actual_x:.1}" y="{}" text-anchor="middle">Selected day</text>"#,
+        actual_x - bar_width / 2.0,
+        actual_x + bar_width / 2.0,
+        actual_y - 10.0,
+        compact_number(waterfall.actual_total),
+        HEIGHT - 24.0,
+        HEIGHT - 24.0
+    ));
+    svg.push_str("</g></svg>");
+    svg.push_str(&format!(
+        r#"<div class="waterfall-legend" aria-label="Waterfall chart legend"><span><i class="legend-dot high"></i>Increase vs reference</span><span><i class="legend-dot low"></i>Decrease vs reference</span><span>n = {} nearby reports</span></div>"#,
+        waterfall.baseline_n
+    ));
+    let insight = waterfall_insight(waterfall);
+    if !insight.is_empty() {
+        svg.push_str(&format!(r#"<p class="insight">{insight}</p>"#));
+    }
+    svg.push_str(&waterfall_table(waterfall));
+    svg.push_str("</div>");
+    svg
+}
+
+fn waterfall_table(waterfall: &ComponentWaterfall) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View component waterfall data table</summary><div class="table-scroll"><table><caption>Fare-media actuals, references, and arithmetic deltas</caption><thead><tr><th scope="col">Category</th><th scope="col">Reference</th><th scope="col">Actual</th><th scope="col">Delta</th></tr></thead><tbody>"#,
+    );
+    for component in &waterfall.components {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td></tr>",
+            component.label,
+            format_number_full(component.reference),
+            format_number_full(component.actual),
+            signed_full(component.delta)
+        ));
+    }
+    if let (Some(reference), Some(delta)) = (waterfall.reference_total, waterfall.delta_total) {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">Total</th><td>{}</td><td>{}</td><td>{}</td></tr>",
+            format_number_full(reference),
+            format_number_full(waterfall.actual_total),
+            signed_full(delta)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
 }
 
 fn baseline_table(points: &[WeekdayBaselinePoint]) -> String {
