@@ -20,6 +20,12 @@ def check(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def check_accessible_table(page, slug: str) -> None:
+    table = page.locator(".chart-shell > details.accessible-data")
+    check(table.count() == 1, f"{slug} does not have exactly one accessible data table")
+    check(table.locator("summary").is_visible(), f"{slug} accessible data table is not visible")
+
+
 def state(page) -> dict:
     raw = page.evaluate("() => sessionStorage.getItem('metroDashState')")
     return json.loads(raw) if raw else {}
@@ -68,7 +74,7 @@ with sync_playwright() as playwright:
     check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "false", "next chart is not focusable")
     chart_jump = page.locator(".chart-jump")
     check(chart_jump.count() == 1, "chart jump select is missing")
-    check(chart_jump.locator("option").count() == 3, "chart jump select does not list every chart")
+    check(chart_jump.locator("option").count() == 16, "chart jump select does not list every chart")
     check(chart_jump.input_value() == "data-card", "chart jump select is not synced to the active chart")
     check(page.locator("#chart-data").count() == 1, "embedded Rust chart payload is missing")
     check(page.locator(".chart-shell.d3-enhanced").count() == 1, "D3 enhancement did not initialise")
@@ -186,7 +192,7 @@ with sync_playwright() as playwright:
     check(resized_line_plot_widths["ratio"] >= 0.85, "line plot does not fill the width after viewport resize")
     page.set_viewport_size({"width": 1280, "height": 900})
     page.wait_for_timeout(350)
-    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
+    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "false", "next chart is not focusable after the weekday chart")
 
     line_paint = page.evaluate(
         """() => {
@@ -226,6 +232,140 @@ with sync_playwright() as playwright:
     check(insight_box is not None and method_box is not None, "line insight or method note is missing")
     check(insight_box["y"] + insight_box["height"] <= method_box["y"] + 1, "line insight overlaps the method note")
 
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Unusual for its Weekday?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-baseline-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-baseline-point-group').length > 0", timeout=10000)
+    check(page.locator(".baseline-svg-legend").count() >= 1, "baseline legend is missing")
+    check_accessible_table(page, "weekday-baseline")
+
+    page.locator(".d3-baseline-point-group").first.focus()
+    check(page.locator("#chart-tooltip").is_visible(), "baseline point focus tooltip is not visible")
+    check("total" in page.locator("#chart-tooltip").text_content(), "baseline tooltip lacks total")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="What Accounts for the Difference?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-waterfall-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-waterfall-group').length === 5", timeout=10000)
+    check(page.locator(".waterfall-svg-legend").count() >= 1, "waterfall legend is missing")
+    check(page.locator(".waterfall-total-anchor").count() == 2, "waterfall total anchors are missing")
+    check_accessible_table(page, "component-waterfall")
+
+    page.locator(".d3-waterfall-group").first.focus()
+    check(page.locator("#chart-tooltip").is_visible(), "waterfall component focus tooltip is not visible")
+    check("delta" in page.locator("#chart-tooltip").text_content(), "waterfall tooltip lacks delta")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="How is the Fare-Media Mix Shifting?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-mix-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-mix-segment').length > 0", timeout=10000)
+    check(page.locator(".mix-svg-legend").count() >= 1, "fare mix legend is missing")
+    check(page.locator(".mix-x-label").count() >= 2, "fare mix month labels are missing")
+    check(page.locator(".mix-coverage-label").count() >= 2, "fare mix coverage labels are missing")
+    check_accessible_table(page, "fare-media-mix")
+    page.locator(".d3-mix-segment").first.focus()
+    check(page.locator("#chart-tooltip").is_visible(), "fare mix segment focus tooltip is not visible")
+    check("complete" in page.locator("#chart-tooltip").text_content(), "fare mix tooltip lacks coverage")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="How is NCMC’s Share Changing?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-ncmc-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-ncmc-point').length > 0", timeout=10000)
+    check(page.locator(".mix-coverage-label").count() >= 2, "NCMC coverage labels are missing")
+    check_accessible_table(page, "ncmc-share")
+    page.locator(".d3-ncmc-point").first.focus()
+    check(page.locator("#chart-tooltip").is_visible(), "NCMC point focus tooltip is not visible")
+    check("Smart Card + NCMC" in page.locator("#chart-tooltip").text_content(), "NCMC tooltip lacks grouping")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Which QR Channels Make Up QR Use?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-qr-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-qr-segment').length > 0", timeout=10000)
+    check(page.locator(".mix-coverage-label").count() >= 1, "QR coverage labels are missing")
+    check_accessible_table(page, "qr-channel-mix")
+    page.locator(".d3-qr-segment").first.focus()
+    check("provider-sum QR" in page.locator("#chart-tooltip").text_content(), "QR tooltip lacks provider-sum context")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="What is Inside Smart Cards?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-smart-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-smart-segment').length > 0", timeout=10000)
+    check(page.locator(".mix-coverage-label").count() >= 1, "Smart Card coverage labels are missing")
+    check_accessible_table(page, "smart-card-mix")
+    page.locator(".d3-smart-segment").first.focus()
+    check("Smart Card subtypes" in page.locator("#chart-tooltip").text_content(), "Smart Card tooltip lacks subtype context")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="How Predictable is Each Weekday?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-dist-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-dist-hit').length >= 1", timeout=10000)
+    check(page.locator(".dist-n").count() >= 1, "weekday distribution sample sizes are missing")
+    check_accessible_table(page, "weekday-distributions")
+    page.locator(".d3-dist-hit").first.focus()
+    check("interquartile range" in page.locator("#chart-tooltip").text_content(), "weekday distribution tooltip lacks IQR context")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="How Does the Weekend Signature Differ?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-signature-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-signature-hit').length === 3", timeout=10000)
+    check(page.locator(".d3-signature-share").count() >= 3, "weekend signature share segments are missing")
+    check_accessible_table(page, "weekend-signatures")
+    page.locator(".d3-signature-hit").first.focus()
+    check("complete of" in page.locator("#chart-tooltip").text_content(), "weekend signature tooltip lacks coverage context")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Does the Weekday Pattern Vary by Month?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-matrix-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.matrix-cell').length >= 7", timeout=10000)
+    check(page.locator(".matrix-row-label").count() >= 1, "month matrix row labels are missing")
+    check_accessible_table(page, "month-weekday-matrix")
+    page.locator(".matrix-cell[data-tooltip]").first.focus()
+    check("weekday" in page.locator("#chart-tooltip").text_content() or "median" in page.locator("#chart-tooltip").text_content(), "matrix tooltip lacks context")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Which Fare Media Vary Most?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-variability-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.ranking-row').length >= 5", timeout=10000)
+    page.locator(".ranking-row").first.focus()
+    check("IQR" in page.locator("#chart-tooltip").text_content(), "variability tooltip lacks IQR")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="How Complete is the Reporting Record?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-pulse-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.pulse-row').length >= 1", timeout=10000)
+    page.locator(".pulse-row").first.focus()
+    check("longest unpublished run" in page.locator("#chart-tooltip").text_content(), "pulse tooltip lacks longest gap")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="What if Reporting Gaps are Filled?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-estimate-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.estimate-row').length >= 1", timeout=10000)
+    page.locator(".estimate-row").first.focus()
+    check("sensitivity" in page.locator("#chart-tooltip").text_content(), "estimate tooltip lacks sensitivity context")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Are Some Fields Less Complete?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-fields-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.fields-cell').length >= 14", timeout=10000)
+    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
+    page.locator(".fields-cell").first.focus()
+    check("Total derivable" in page.locator("#chart-tooltip").text_content(), "field completeness tooltip lacks total context")
+    check(page.locator(".d3-fields-scene details.accessible-data summary").is_visible(), "field completeness accessible data table is not visible")
+
+
     # Range change through the date picker recomputes the payload. The target
     # end date comes from the loaded dataset's own available dates, so the
     # expectation holds even when the latest published day falls early in
@@ -260,7 +400,7 @@ with sync_playwright() as playwright:
         f"() => {{ const s = JSON.parse(sessionStorage.getItem('metroDashState') || '{{}}'); return s.end === '{target_end}'; }}",
         timeout=10000,
     )
-    check(state(page).get("chart") == "commute-casual", "range change reset the active chart")
+    check(state(page).get("chart") == "field-completeness", "range change reset the active chart")
 
     # On the static site the WASM compute core answers every range change
     # locally; /api/* must stay untouched. The self-hosted server has no

@@ -39,8 +39,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let computeState = 'pending';
   let computeSettled = null;
 
-  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true };
-  const chartOrder = ['data-card', 'calendar', 'commute-casual'];
+  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true, 'qr-channel-mix': true, 'smart-card-mix': true, 'weekday-distributions': true, 'weekend-signatures': true, 'month-weekday-matrix': true, 'variability-ranking': true, 'reporting-pulse': true, 'monthly-estimates': true, 'field-completeness': true };
+  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share', 'qr-channel-mix', 'smart-card-mix', 'weekday-distributions', 'weekend-signatures', 'month-weekday-matrix', 'variability-ranking', 'reporting-pulse', 'monthly-estimates', 'field-completeness'];
   if (chartJump) {
     chartJump.querySelectorAll('option').forEach((option) => {
       if (!chartRegistry[option.value]) option.remove();
@@ -107,6 +107,16 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     if (abs >= 1_000) return `${Math.round(value / 1_000)}k`;
     return `${Math.round(value)}`;
   };
+  const compactAxis = (value, spread) => {
+    if (value == null || Number.isNaN(value)) return '—';
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) {
+      const decimals = spread < 250_000 ? 2 : 1;
+      return `${(value / 1_000_000).toFixed(decimals)}M`;
+    }
+    if (abs >= 1_000) return `${Math.round(value / 1_000)}k`;
+    return `${Math.round(value)}`;
+  };
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const _bandColors = Array.from({length: 10}, (_, i) => cssVar(`--band-${i}`));
   const _paperColor = cssVar('--paper');
@@ -124,9 +134,12 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const text = target.dataset.tooltip || target.getAttribute('aria-label');
     if (!tooltip || !text) return;
     const bounds = target.getBoundingClientRect();
+    if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
     tooltip.textContent = text;
     tooltip.hidden = false;
-    tooltip.style.left = `${Math.min(window.innerWidth - 16, Math.max(16, bounds.left + bounds.width / 2))}px`;
+    tooltip.style.opacity = '1';
+    tooltip.style.transition = 'none';
+    tooltip.style.left = `${Math.min(window.innerWidth - 128, Math.max(128, bounds.left + bounds.width / 2))}px`;
     tooltip.style.top = `${Math.max(12, bounds.top - 10)}px`;
   };
   let _tooltipTimer = null;
@@ -138,7 +151,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     tooltip.hidden = false;
     tooltip.style.opacity = '1';
     tooltip.style.transition = 'none';
-    tooltip.style.left = `${Math.min(window.innerWidth - 16, Math.max(16, bounds.left + bounds.width / 2))}px`;
+    tooltip.style.left = `${Math.min(window.innerWidth - 128, Math.max(128, bounds.left + bounds.width / 2))}px`;
     tooltip.style.top = `${Math.max(12, bounds.top - 10)}px`;
   };
   const hideTooltip = () => {
@@ -146,6 +159,13 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     tooltip.style.transition = 'opacity .4s ease-in';
     tooltip.style.opacity = '0';
     _tooltipTimer = setTimeout(() => { tooltip.hidden = true; }, 400);
+  };
+  const hideTooltipImmediately = () => {
+    if (!tooltip) return;
+    if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
+    tooltip.style.transition = 'none';
+    tooltip.style.opacity = '0';
+    tooltip.hidden = true;
   };
   const bindTooltip = (selection) => {
     selection
@@ -254,6 +274,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   const ensureScene = (className) => {
     chartShell.classList.add('d3-enhanced');
+    chartShell.querySelectorAll('.calendar-wrap,.line-chart-wrap,.baseline-wrap,.waterfall-wrap,.mix-wrap,.ncmc-wrap,.qr-ssr-wrap,.smart-ssr-wrap,.dist-ssr-wrap,.signature-ssr-wrap,.matrix-ssr-wrap,.variability-ssr-wrap,.pulse-ssr-wrap,.estimate-ssr-wrap,.fields-ssr-wrap')
+      .forEach(node => node.setAttribute('aria-hidden', 'true'));
     let scene = chartShell.querySelector(`.${className}`);
     if (!scene) {
       scene = document.createElement('div');
@@ -614,6 +636,728 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+  const renderBaseline = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-baseline-scene');
+    const baseline = payload.charts.weekdayBaseline;
+    const points = (baseline?.points || []).map(point => ({...point, dateObject: new Date(`${point.date}T00:00:00`)}));
+    scene.selectAll('.baseline-empty').data(points.length ? [] : [true]).join('p')
+      .attr('class', 'baseline-empty')
+      .text('No published totals are available in this range.');
+    if (!points.length) {
+      scene.selectAll('svg').remove();
+      return;
+    }
+
+    const width = 1100, height = 360, left = 70, right = 34, top = 36, bottom = 52;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const startDate = new Date(`${payload.range.start}T00:00:00`);
+    const endDate = new Date(`${payload.range.end}T00:00:00`);
+    const x = D3.scaleTime().domain([startDate, endDate]).range([left, left + plotWidth]);
+    const values = points.flatMap(point => [point.total, point.lowerQuartile, point.upperQuartile].filter(value => value != null));
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values, 1);
+    const spread = Math.max(1, maxValue - minValue);
+    const yMin = Math.max(0, minValue - spread * 0.08);
+    const yMax = maxValue + spread * 0.08;
+    const y = D3.scaleLinear().domain([yMin, yMax]).range([top + plotHeight, top]);
+    const svg = scene.selectAll('svg').data([null]).join('svg')
+      .attr('class', 'd3-baseline-svg baseline-chart')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Daily ridership compared with rolling same-weekday baseline, enhanced with D3');
+
+    svg.selectAll('.d3-grid-line').data(y.ticks(4)).join('line')
+      .attr('class', 'd3-grid-line')
+      .attr('x1', left).attr('x2', width - right)
+      .transition().duration(canAnimate && animate ? 220 : 0)
+      .attr('y1', d => y(d)).attr('y2', d => y(d));
+    svg.selectAll('.d3-y-label').data(y.ticks(4)).join('text')
+      .attr('class', 'd3-y-label')
+      .attr('x', left - 10).attr('text-anchor', 'end')
+      .transition().duration(canAnimate && animate ? 220 : 0)
+      .attr('y', d => y(d) + 4)
+      .text(d => compact(d));
+
+    const spanMs = Math.max(1, endDate.getTime() - startDate.getTime());
+    const monthCount = Math.max(1, (endDate.getFullYear() - startDate.getFullYear()) * 12 + endDate.getMonth() - startDate.getMonth());
+    const monthStep = Math.max(1, Math.ceil(monthCount / 6));
+    let xTicks = x.ticks(D3.timeMonth.every(monthStep))
+      .filter(date => date >= startDate && date <= endDate);
+    if (xTicks.length < 2) {
+      xTicks = Array.from({length: 4}, (_, index) => new Date(startDate.getTime() + spanMs * index / 3));
+    }
+    const spacedTicks = [];
+    xTicks.forEach(date => {
+      const xx = x(date);
+      if (!spacedTicks.length || xx - x(spacedTicks[spacedTicks.length - 1]) >= 56) spacedTicks.push(date);
+    });
+    xTicks = spacedTicks.length >= 2 ? spacedTicks : xTicks.slice(0, 2);
+    const longSpan = spanMs / 86400000 > 500;
+    const monthTickFormat = D3.timeFormat('%b');
+    const yearTickFormat = D3.timeFormat('%b \u2019%y');
+    const dayTickFormat = D3.timeFormat('%-d %b');
+    svg.selectAll('.d3-x-label').data(xTicks, d => d.getTime()).join('text')
+      .attr('class', 'd3-x-label')
+      .attr('text-anchor', 'middle')
+      .attr('y', height - 18)
+      .transition().duration(canAnimate && animate ? 220 : 0)
+      .attr('x', d => x(d))
+      .text((d, index) => {
+        if (xTicks.length < 4 || d.getDate() !== 1) return dayTickFormat(d);
+        return index === 0 || d.getMonth() === 0 || longSpan ? yearTickFormat(d) : monthTickFormat(d);
+      });
+
+    const bandPoints = points.filter(point => point.lowerQuartile != null && point.upperQuartile != null);
+    const band = D3.area()
+      .defined(point => point.lowerQuartile != null && point.upperQuartile != null)
+      .x(point => x(point.dateObject))
+      .y0(point => y(point.lowerQuartile))
+      .y1(point => y(point.upperQuartile));
+    svg.selectAll('.d3-baseline-band').data([bandPoints]).join('path')
+      .attr('class', 'baseline-band d3-baseline-band')
+      .transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('d', band);
+
+    const medianLine = D3.line()
+      .defined(point => point.median != null)
+      .x(point => x(point.dateObject))
+      .y(point => y(point.median));
+    svg.selectAll('.d3-baseline-median').data([points]).join('path')
+      .attr('class', 'baseline-median d3-baseline-median')
+      .attr('fill', 'none')
+      .transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('d', medianLine);
+
+    const actualPath = points.map((point, index) => {
+      const gap = index === 0 ? 0 : (point.dateObject.getTime() - points[index - 1].dateObject.getTime()) / 86400000;
+      const command = index === 0 || gap > 7 ? 'M' : 'L';
+      return `${command}${x(point.dateObject)},${y(point.total)}`;
+    }).join(' ');
+    svg.selectAll('.d3-baseline-actual').data([points]).join('path')
+      .attr('class', 'baseline-actual d3-baseline-actual')
+      .attr('fill', 'none')
+      .transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('d', actualPath);
+
+    const pointGroups = svg.selectAll('.d3-baseline-point-group').data(points, d => d.date).join('g')
+      .attr('class', d => `d3-baseline-point-group ${d.status}`)
+      .attr('aria-label', d => d.tooltip)
+      .attr('data-tooltip', d => d.tooltip);
+    pointGroups.transition().duration(canAnimate && animate ? 320 : 0)
+      .attr('transform', d => `translate(${x(d.dateObject)},${y(d.total)})`);
+    pointGroups.selectAll('circle.d3-point-hit').data(d => [d]).join('circle')
+      .attr('class', 'd3-point-hit')
+      .attr('r', 12)
+      .attr('fill', 'transparent');
+    pointGroups.selectAll('circle.d3-baseline-point').data(d => [d]).join('circle')
+      .attr('class', d => `baseline-point d3-baseline-point ${d.status}`)
+      .attr('r', d => d.status === 'high' || d.status === 'low' ? 5.5 : 4);
+    bindTooltip(pointGroups);
+
+    svg.selectAll('.baseline-svg-insight').data(baseline.insight ? [baseline.insight] : []).join('text')
+      .attr('class', 'baseline-svg-insight')
+      .attr('x', left)
+      .attr('y', 16)
+      .text(d => d);
+
+    const legendData = [
+      {key: 'band', label: 'IQR band', x: 0},
+      {key: 'median', label: 'Median', x: 92},
+      {key: 'within', label: 'Within', x: 166},
+      {key: 'high', label: 'Above', x: 240},
+      {key: 'low', label: 'Below', x: 312},
+    ];
+    const legend = svg.selectAll('.baseline-svg-legend').data([legendData]).join('g')
+      .attr('class', 'baseline-svg-legend')
+      .attr('transform', `translate(${width - right - 380},8)`);
+    const legendItems = legend.selectAll('g').data(d => d, d => d.key).join('g')
+      .attr('transform', d => `translate(${d.x},0)`);
+    // Draw the compact legend imperatively because its mark type varies.
+    legendItems.each(function(d) {
+      const node = D3.select(this);
+      node.selectAll('*').remove();
+      if (d.key === 'band') node.append('rect').attr('class', 'legend-mark-band').attr('width', 18).attr('height', 10).attr('y', -3);
+      else if (d.key === 'median') node.append('line').attr('class', 'legend-mark-median').attr('x1', 0).attr('x2', 18).attr('y1', 2).attr('y2', 2);
+      else node.append('circle').attr('class', `legend-mark-dot ${d.key}`).attr('cx', 7).attr('cy', 2).attr('r', 4.5);
+      node.append('text').attr('x', 24).attr('y', 6).text(d.label);
+    });
+
+    choreograph(scene.node());
+  };
+
+  const renderWaterfall = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-waterfall-scene');
+    const waterfall = payload.charts.componentWaterfall;
+    const components = waterfall?.components || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.waterfall-empty').remove();
+    if (!waterfall?.available || !components.length) {
+      scene.append('p').attr('class', 'waterfall-empty').text(waterfall?.message || 'Waterfall unavailable for the selected day.');
+      choreograph(scene.node());
+      return;
+    }
+
+    const width = 1100, height = 360, left = 70, right = 34, top = 38, bottom = 62;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const values = [waterfall.referenceTotal, waterfall.actualTotal, ...components.flatMap(d => [d.cumulativeStart, d.cumulativeEnd])].filter(v => v != null);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values, 1);
+    const spread = Math.max(1, maxValue - minValue);
+    const yMin = Math.max(0, minValue - spread * 0.12);
+    const yMax = maxValue + spread * 0.12;
+    const y = D3.scaleLinear().domain([yMin, yMax]).range([top + plotHeight, top]);
+    const slots = components.length + 2;
+    const step = plotWidth / slots;
+    const x = index => left + step * (index + 0.5);
+    const barWidth = Math.max(44, Math.min(78, step * 0.56));
+    const svg = scene.append('svg')
+      .attr('class', 'd3-waterfall-svg waterfall-chart')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', `Fare-media component waterfall for ${waterfall.dateDisplay}`);
+
+    const axisTicks = D3.range(5).map(i => yMin + (yMax - yMin) * i / 4);
+    svg.selectAll('.d3-grid-line').data(axisTicks).join('line')
+      .attr('class', 'd3-grid-line')
+      .attr('x1', left).attr('x2', width - right)
+      .attr('y1', d => y(d)).attr('y2', d => y(d));
+    svg.selectAll('.d3-y-label').data(axisTicks).join('text')
+      .attr('class', 'd3-y-label')
+      .attr('x', left - 10).attr('text-anchor', 'end')
+      .attr('y', d => y(d) + 4)
+      .text(d => compactAxis(d, yMax - yMin));
+
+    const referenceX = x(0);
+    const actualX = x(slots - 1);
+    const referenceY = y(waterfall.referenceTotal);
+    const actualY = y(waterfall.actualTotal);
+    svg.append('line').attr('class', 'waterfall-total-anchor')
+      .attr('x1', referenceX - barWidth / 2).attr('x2', referenceX + barWidth / 2)
+      .attr('y1', referenceY).attr('y2', referenceY);
+    svg.append('text').attr('class', 'waterfall-total-label')
+      .attr('x', referenceX).attr('y', referenceY - 10).attr('text-anchor', 'middle')
+      .text(compact(waterfall.referenceTotal));
+    svg.append('text').attr('class', 'd3-x-label waterfall-x-label total')
+      .attr('x', referenceX).attr('y', height - 24).attr('text-anchor', 'middle').text('Reference');
+
+    const groups = svg.selectAll('.d3-waterfall-group').data(components, d => d.key).join('g')
+      .attr('class', d => `d3-waterfall-group ${d.positive ? 'positive' : 'negative'}`)
+      .attr('aria-label', d => d.tooltip)
+      .attr('data-tooltip', d => d.tooltip)
+      .attr('transform', (d, i) => `translate(${x(i + 1)},0)`);
+    groups.selectAll('rect.waterfall-hit').data(d => [d]).join('rect')
+      .attr('class', 'waterfall-hit')
+      .attr('x', -barWidth / 2).attr('y', top)
+      .attr('width', barWidth).attr('height', plotHeight)
+      .attr('fill', 'transparent');
+    groups.selectAll('rect.waterfall-bar').data(d => [d]).join('rect')
+      .attr('class', d => `waterfall-bar ${d.positive ? 'positive' : 'negative'}`)
+      .attr('x', -barWidth / 2)
+      .attr('width', barWidth)
+      .transition().duration(canAnimate && animate ? 360 : 0)
+      .attr('y', d => Math.min(y(d.cumulativeStart), y(d.cumulativeEnd)))
+      .attr('height', d => Math.max(2, Math.abs(y(d.cumulativeStart) - y(d.cumulativeEnd))));
+    groups.selectAll('text.waterfall-delta').data(d => [d]).join('text')
+      .attr('class', d => `waterfall-delta ${d.positive ? 'positive' : 'negative'}`)
+      .attr('text-anchor', 'middle')
+      .transition().duration(canAnimate && animate ? 360 : 0)
+      .attr('y', d => {
+        const topY = Math.min(y(d.cumulativeStart), y(d.cumulativeEnd));
+        const barHeight = Math.max(2, Math.abs(y(d.cumulativeStart) - y(d.cumulativeEnd)));
+        return d.positive ? topY - 8 : topY + barHeight + 15;
+      })
+      .text(d => d.deltaLabel);
+    groups.selectAll('text.waterfall-x-label').data(d => [d]).join('text')
+      .attr('class', 'd3-x-label waterfall-x-label')
+      .attr('text-anchor', 'middle')
+      .attr('y', height - 24)
+      .text(d => d.label);
+    bindTooltip(groups);
+
+    svg.selectAll('.waterfall-connector').data(components.slice(0, -1), d => d.key).join('line')
+      .attr('class', 'waterfall-connector')
+      .attr('x1', (d, i) => x(i + 1) + barWidth / 2)
+      .attr('x2', (d, i) => x(i + 2) - barWidth / 2)
+      .attr('y1', d => y(d.cumulativeEnd))
+      .attr('y2', d => y(d.cumulativeEnd));
+    const last = components[components.length - 1];
+    svg.append('line').attr('class', 'waterfall-connector')
+      .attr('x1', x(components.length) + barWidth / 2)
+      .attr('x2', actualX - barWidth / 2)
+      .attr('y1', y(last.cumulativeEnd)).attr('y2', y(last.cumulativeEnd));
+    svg.append('line').attr('class', 'waterfall-total-anchor actual')
+      .attr('x1', actualX - barWidth / 2).attr('x2', actualX + barWidth / 2)
+      .attr('y1', actualY).attr('y2', actualY);
+    svg.append('text').attr('class', 'waterfall-total-label')
+      .attr('x', actualX).attr('y', actualY - 10).attr('text-anchor', 'middle')
+      .text(compact(waterfall.actualTotal));
+    svg.append('text').attr('class', 'd3-x-label waterfall-x-label total')
+      .attr('x', actualX).attr('y', height - 24).attr('text-anchor', 'middle').text('Selected day');
+
+    svg.append('text')
+      .attr('class', 'baseline-svg-insight')
+      .attr('x', left).attr('y', 16)
+      .text(waterfall.insight || '');
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend waterfall-svg-legend').attr('transform', `translate(${width - right - 310},8)`);
+    [['positive', 'Increase', 0], ['negative', 'Decrease', 100], ['n', `n = ${waterfall.baselineN}`, 200]].forEach(([key, label, dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      if (key !== 'n') item.append('circle').attr('class', `legend-mark-dot ${key === 'positive' ? 'high' : 'low'}`).attr('cx', 7).attr('cy', 2).attr('r', 4.5);
+      item.append('text').attr('x', key === 'n' ? 0 : 18).attr('y', 6).text(label);
+    });
+    choreograph(scene.node());
+  };
+
+  const renderFareMix = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-mix-scene');
+    const months = payload.charts.fareMediaMix?.months || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.mix-empty').remove();
+    if (!months.length) {
+      scene.append('p').attr('class', 'mix-empty').text('No months are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    const height = 400, left = 48, right = 22, top = 42;
+    const sceneWidth = scene.node()?.getBoundingClientRect().width || 1100;
+    const narrow = sceneWidth < 700;
+    const width = narrow ? Math.max(sceneWidth, months.length * 78) : 1100;
+    const shareH = 178, gap = 34, totalH = 58, labelY = 366;
+    const plotWidth = width - left - right;
+    const step = plotWidth / months.length;
+    const barWidth = Math.max(14, Math.min(52, step * 0.58));
+    const maxTotal = Math.max(1, ...months.map(d => d.total || 0));
+    const totalBase = top + shareH + gap + totalH;
+    const x = index => left + step * (index + 0.5);
+    scene.selectAll('.d3-insight').data(payload.charts.fareMediaMix?.insight ? [payload.charts.fareMediaMix.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const svg = scene.append('svg')
+      .attr('class', `d3-mix-svg mix-chart${narrow ? ' mix-narrow' : ''}`)
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Monthly fare-media share mix with observed totals, enhanced with D3');
+    if (narrow) svg.style('width', `${width}px`).style('height', `${height}px`);
+
+    [[0, '0%'], [0.5, '50%'], [1, '100%']].forEach(([value, label]) => {
+      const yy = top + shareH - value * shareH;
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', yy + 4).attr('text-anchor', 'end').text(label);
+    });
+    svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', totalBase).attr('y2', totalBase);
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase - totalH + 4).attr('text-anchor', 'end').text(compact(maxTotal));
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase + 4).attr('text-anchor', 'end').text('0');
+
+    const segments = [];
+    const totals = [];
+    const gaps = [];
+    months.forEach((month, monthIndex) => {
+      if (month.total > 0) {
+        let cumulative = 0;
+        month.components.forEach(component => {
+          const share = component.share || 0;
+          segments.push({month, monthIndex, component, share, y: top + cumulative * shareH, height: Math.max(component.value > 0 ? 1 : 0, share * shareH)});
+          cumulative += share;
+        });
+        const barH = month.total / maxTotal * totalH;
+        totals.push({month, monthIndex, height: barH, y: totalBase - barH});
+      } else {
+        gaps.push({month, monthIndex});
+      }
+    });
+
+    const segmentSelection = svg.selectAll('.d3-mix-segment').data(segments, d => `${d.month.month}-${d.component.key}`).join('rect')
+      .attr('class', d => `d3-mix-segment mix-segment mix-${d.component.key}`)
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => d.component.tooltip)
+      .attr('data-tooltip', d => d.component.tooltip);
+    segmentSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => d.y)
+      .attr('height', d => d.height);
+    bindTooltip(segmentSelection);
+
+    const totalSelection = svg.selectAll('.d3-mix-total').data(totals, d => d.month.month).join('rect')
+      .attr('class', 'd3-mix-total mix-total-bar')
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => `${d.month.label} observed total: ${d.month.totalLabel} across ${d.month.completeDays} complete days`)
+      .attr('data-tooltip', d => `${d.month.label} observed total: ${d.month.totalLabel} across ${d.month.completeDays} complete days`);
+    totalSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => d.y)
+      .attr('height', d => d.height);
+    bindTooltip(totalSelection);
+
+    svg.selectAll('.mix-gap').data(gaps, d => d.month.month).join('rect')
+      .attr('class', 'mix-gap')
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('y', top)
+      .attr('width', barWidth)
+      .attr('height', shareH);
+    svg.selectAll('.mix-coverage-label').data(months.filter(d => d.total > 0), d => d.month).join('text')
+      .attr('class', 'mix-coverage-label')
+      .attr('x', d => x(months.indexOf(d)))
+      .attr('y', totalBase + 17)
+      .attr('text-anchor', 'middle')
+      .text(d => `${d.completeDays}/${d.publishedDays}d`);
+
+    svg.selectAll('.mix-x-label').data(months, d => d.month).join('text')
+      .attr('class', 'd3-x-label mix-x-label')
+      .attr('x', (d, i) => x(i))
+      .attr('y', labelY)
+      .attr('text-anchor', 'middle')
+      .text(d => d.label);
+
+    const legendItems = narrow
+      ? [['smart-card','Smart',0],['ncmc','NCMC',68],['token','Token',136],['qr','QR',200],['group-ticket','Group',242]]
+      : [['smart-card','Smart Cards',0],['ncmc','NCMC',100],['token','Tokens',178],['qr','QR',258],['group-ticket','Group',318]];
+    const legendWidth = narrow ? 292 : 390;
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend mix-svg-legend').attr('transform', `translate(${Math.max(left, width - right - legendWidth)},8)`);
+    legendItems.forEach(([key,label,dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      item.append('rect').attr('class', `mix-key mix-${key}`).attr('x', 2).attr('y', -4).attr('width', 10).attr('height', 10).attr('rx', 2);
+      item.append('text').attr('x', 18).attr('y', 6).text(label);
+    });
+    choreograph(scene.node());
+  };
+
+  const renderNcmcShare = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-ncmc-scene');
+    const weeks = payload.charts.ncmcShare?.weeks || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.ncmc-empty').remove();
+    if (!weeks.length) {
+      scene.append('p').attr('class', 'ncmc-empty').text('No weeks are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    const height = 400, left = 48, right = 22, top = 42;
+    const sceneWidth = scene.node()?.getBoundingClientRect().width || 1100;
+    const narrow = sceneWidth < 700;
+    const width = narrow ? Math.max(sceneWidth, weeks.length * 62) : 1100;
+    const shareH = 178, gap = 34, totalH = 58, labelY = 366;
+    const plotWidth = width - left - right;
+    const step = plotWidth / weeks.length;
+    const barWidth = Math.max(10, Math.min(42, step * 0.52));
+    const maxNcmc = Math.max(1, ...weeks.map(d => d.ncmc || 0));
+    const totalBase = top + shareH + gap + totalH;
+    const x = index => left + step * (index + 0.5);
+    const shareY = share => top + shareH - share * shareH;
+    scene.selectAll('.d3-insight').data(payload.charts.ncmcShare?.insight ? [payload.charts.ncmcShare.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const svg = scene.append('svg')
+      .attr('class', `d3-ncmc-svg ncmc-chart${narrow ? ' mix-narrow' : ''}`)
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Weekly NCMC share of Smart Cards plus NCMC, enhanced with D3');
+    if (narrow) svg.style('width', `${width}px`).style('height', `${height}px`);
+
+    [[0, '0%'], [0.5, '50%'], [1, '100%']].forEach(([value, label]) => {
+      const yy = shareY(value);
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', yy + 4).attr('text-anchor', 'end').text(label);
+    });
+    svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', totalBase).attr('y2', totalBase);
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase - totalH + 4).attr('text-anchor', 'end').text(compact(maxNcmc));
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase + 4).attr('text-anchor', 'end').text('0');
+
+    const usable = weeks.map((week, index) => ({...week, index})).filter(week => week.share != null);
+    const segments = usable.slice(1).map((point, i) => ({a: usable[i], b: point})).filter(pair => pair.b.index === pair.a.index + 1);
+    svg.selectAll('.ncmc-share-line').data(segments).join('line')
+      .attr('class', 'ncmc-share-line')
+      .attr('x1', d => x(d.a.index)).attr('y1', d => shareY(d.a.share))
+      .attr('x2', d => x(d.b.index)).attr('y2', d => shareY(d.b.share));
+
+    const pointSelection = svg.selectAll('.d3-ncmc-point').data(usable, d => d.week).join('circle')
+      .attr('class', 'd3-ncmc-point ncmc-share-point')
+      .attr('cx', d => x(d.index))
+      .attr('cy', d => shareY(d.share))
+      .attr('r', 5)
+      .attr('aria-label', d => d.tooltip)
+      .attr('data-tooltip', d => d.tooltip);
+    bindTooltip(pointSelection);
+
+    const bars = usable.map(week => ({...week, height: week.ncmc / maxNcmc * totalH}));
+    const barSelection = svg.selectAll('.d3-ncmc-count').data(bars, d => d.week).join('rect')
+      .attr('class', 'd3-ncmc-count ncmc-count-bar')
+      .attr('x', d => x(d.index) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => `Week of ${d.label}: NCMC ${d.ncmcLabel} across ${d.completeDays} complete days`)
+      .attr('data-tooltip', d => `Week of ${d.label}: NCMC ${d.ncmcLabel} across ${d.completeDays} complete days`);
+    barSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => totalBase - d.height)
+      .attr('height', d => d.height);
+    bindTooltip(barSelection);
+
+    svg.selectAll('.mix-gap').data(weeks.filter(d => d.share == null), d => d.week).join('rect')
+      .attr('class', 'mix-gap')
+      .attr('x', d => x(weeks.indexOf(d)) - barWidth / 2)
+      .attr('y', top).attr('width', barWidth).attr('height', shareH);
+    svg.selectAll('.mix-coverage-label').data(step >= 46 ? usable : [], d => d.week).join('text')
+      .attr('class', 'mix-coverage-label')
+      .attr('x', d => x(d.index))
+      .attr('y', totalBase + 17)
+      .attr('text-anchor', 'middle')
+      .text(d => `${d.completeDays}/${d.publishedDays}d`);
+    const labelEvery = Math.max(1, Math.floor(weeks.length / 10));
+    const labelledWeeks = weeks.filter((d, i) => i % labelEvery === 0 || i + 1 === weeks.length);
+    svg.selectAll('.mix-x-label').data(labelledWeeks, d => d.week).join('text')
+      .attr('class', 'd3-x-label mix-x-label')
+      .attr('x', d => x(weeks.indexOf(d)))
+      .attr('y', labelY)
+      .attr('text-anchor', 'middle')
+      .text(d => d.label);
+
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend mix-svg-legend').attr('transform', `translate(${Math.max(left, width - right - 190)},8)`);
+    const shareItem = legend.append('g');
+    shareItem.append('line').attr('class', 'ncmc-line-key').attr('x1', 0).attr('x2', 14).attr('y1', 2).attr('y2', 2);
+    shareItem.append('text').attr('x', 20).attr('y', 6).text('Share');
+    const countItem = legend.append('g').attr('transform', 'translate(92,0)');
+    countItem.append('rect').attr('class', 'ncmc-count-key').attr('x', 2).attr('y', -4).attr('width', 10).attr('height', 10).attr('rx', 2);
+    countItem.append('text').attr('x', 18).attr('y', 6).text('NCMC count');
+    choreograph(scene.node());
+  };
+
+  const renderQrMix = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-qr-scene');
+    const months = payload.charts.qrMix?.months || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.qr-empty').remove();
+    if (!months.length) {
+      scene.append('p').attr('class', 'qr-empty').text('No months are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    const height = 400, left = 48, right = 22, top = 42;
+    const sceneWidth = scene.node()?.getBoundingClientRect().width || 1100;
+    const narrow = sceneWidth < 700;
+    const width = narrow ? Math.max(sceneWidth, months.length * 78) : 1100;
+    const shareH = 178, gap = 34, totalH = 58, labelY = 366;
+    const plotWidth = width - left - right;
+    const step = plotWidth / months.length;
+    const barWidth = Math.max(14, Math.min(52, step * 0.58));
+    const maxTotal = Math.max(1, ...months.map(d => d.total || 0));
+    const totalBase = top + shareH + gap + totalH;
+    const x = index => left + step * (index + 0.5);
+    scene.selectAll('.d3-insight').data(payload.charts.qrMix?.insight ? [payload.charts.qrMix.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const svg = scene.append('svg')
+      .attr('class', `d3-qr-svg mix-chart${narrow ? ' mix-narrow' : ''}`)
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Monthly QR channel share mix with parent Total QR, enhanced with D3');
+    if (narrow) svg.style('width', `${width}px`).style('height', `${height}px`);
+
+    [[0, '0%'], [0.5, '50%'], [1, '100%']].forEach(([value, label]) => {
+      const yy = top + shareH - value * shareH;
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', yy + 4).attr('text-anchor', 'end').text(label);
+    });
+    svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', totalBase).attr('y2', totalBase);
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase - totalH + 4).attr('text-anchor', 'end').text(compact(maxTotal));
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase + 4).attr('text-anchor', 'end').text('0');
+
+    const segments = [];
+    const totals = [];
+    const gaps = [];
+    months.forEach((month, monthIndex) => {
+      const hasShare = month.components.some(component => component.share != null);
+      if (hasShare) {
+        let cumulative = 0;
+        month.components.forEach(component => {
+          const share = component.share || 0;
+          segments.push({month, monthIndex, component, share, y: top + cumulative * shareH, height: Math.max(component.value > 0 ? 1 : 0, share * shareH)});
+          cumulative += share;
+        });
+      } else {
+        gaps.push({month, monthIndex});
+      }
+      if (month.total != null) {
+        const barH = month.total / maxTotal * totalH;
+        totals.push({month, monthIndex, height: barH, y: totalBase - barH});
+      }
+    });
+
+    const segmentSelection = svg.selectAll('.d3-qr-segment').data(segments, d => `${d.month.month}-${d.component.key}`).join('rect')
+      .attr('class', d => `d3-qr-segment mix-segment mix-${d.component.key}`)
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => d.component.tooltip)
+      .attr('data-tooltip', d => d.component.tooltip);
+    segmentSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => d.y)
+      .attr('height', d => d.height);
+    bindTooltip(segmentSelection);
+
+    const totalSelection = svg.selectAll('.d3-qr-total').data(totals, d => d.month.month).join('rect')
+      .attr('class', 'd3-qr-total mix-total-bar')
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => `${d.month.label} parent Total QR: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete provider days)` : ` across ${d.month.completeDays} complete provider days`}`)
+      .attr('data-tooltip', d => `${d.month.label} parent Total QR: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete provider days)` : ` across ${d.month.completeDays} complete provider days`}`);
+    totalSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => d.y)
+      .attr('height', d => d.height);
+    bindTooltip(totalSelection);
+
+    svg.selectAll('.mix-gap').data(gaps, d => d.month.month).join('rect')
+      .attr('class', 'mix-gap')
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('y', top)
+      .attr('width', barWidth)
+      .attr('height', shareH);
+    svg.selectAll('.mix-coverage-label').data(months.filter(d => d.components.some(component => component.share != null)), d => d.month).join('text')
+      .attr('class', 'mix-coverage-label')
+      .attr('x', d => x(months.indexOf(d)))
+      .attr('y', totalBase + 17)
+      .attr('text-anchor', 'middle')
+      .text(d => `${d.completeDays}/${d.publishedDays}d`);
+
+    svg.selectAll('.mix-x-label').data(months, d => d.month).join('text')
+      .attr('class', 'd3-x-label mix-x-label')
+      .attr('x', (d, i) => x(i))
+      .attr('y', labelY)
+      .attr('text-anchor', 'middle')
+      .text(d => d.label);
+
+    const legendItems = narrow
+      ? [['qr-namma','Namma',0],['qr-whatsapp','WhatsApp',72],['qr-paytm','Paytm',158],['qr-ondc','ONDC',218]]
+      : [['qr-namma','Namma Metro',0],['qr-whatsapp','WhatsApp',108],['qr-paytm','Paytm',202],['qr-ondc','ONDC',264]];
+    const legendWidth = narrow ? 270 : 330;
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend mix-svg-legend').attr('transform', `translate(${Math.max(left, width - right - legendWidth)},8)`);
+    legendItems.forEach(([key,label,dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      item.append('rect').attr('class', `mix-key mix-${key}`).attr('x', 2).attr('y', -4).attr('width', 10).attr('height', 10).attr('rx', 2);
+      item.append('text').attr('x', 18).attr('y', 6).text(label);
+    });
+    choreograph(scene.node());
+  };
+
+  const renderSmartMix = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-smart-scene');
+    const months = payload.charts.smartMix?.months || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.smart-empty').remove();
+    if (!months.length) {
+      scene.append('p').attr('class', 'smart-empty').text('No months are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    const height = 400, left = 48, right = 22, top = 42;
+    const sceneWidth = scene.node()?.getBoundingClientRect().width || 1100;
+    const narrow = sceneWidth < 700;
+    const width = narrow ? Math.max(sceneWidth, months.length * 78) : 1100;
+    const shareH = 178, gap = 34, totalH = 58, labelY = 366;
+    const plotWidth = width - left - right;
+    const step = plotWidth / months.length;
+    const barWidth = Math.max(14, Math.min(52, step * 0.58));
+    const maxTotal = Math.max(1, ...months.map(d => d.total || 0));
+    const totalBase = top + shareH + gap + totalH;
+    const x = index => left + step * (index + 0.5);
+    scene.selectAll('.d3-insight').data(payload.charts.smartMix?.insight ? [payload.charts.smartMix.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const svg = scene.append('svg')
+      .attr('class', `d3-smart-svg mix-chart${narrow ? ' mix-narrow' : ''}`)
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Monthly Smart Card subtype share mix with parent Smart Cards, enhanced with D3');
+    if (narrow) svg.style('width', `${width}px`).style('height', `${height}px`);
+
+    [[0, '0%'], [0.5, '50%'], [1, '100%']].forEach(([value, label]) => {
+      const yy = top + shareH - value * shareH;
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', yy + 4).attr('text-anchor', 'end').text(label);
+    });
+    svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', totalBase).attr('y2', totalBase);
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase - totalH + 4).attr('text-anchor', 'end').text(compact(maxTotal));
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase + 4).attr('text-anchor', 'end').text('0');
+
+    const segments = [];
+    const totals = [];
+    const gaps = [];
+    months.forEach((month, monthIndex) => {
+      const hasShare = month.components.some(component => component.share != null);
+      if (hasShare) {
+        let cumulative = 0;
+        month.components.forEach(component => {
+          const share = component.share || 0;
+          segments.push({month, monthIndex, component, share, y: top + cumulative * shareH, height: Math.max(component.value > 0 ? 1 : 0, share * shareH)});
+          cumulative += share;
+        });
+      } else {
+        gaps.push({month, monthIndex});
+      }
+      if (month.total != null) {
+        const barH = month.total / maxTotal * totalH;
+        totals.push({month, monthIndex, height: barH, y: totalBase - barH});
+      }
+    });
+
+    const segmentSelection = svg.selectAll('.d3-smart-segment').data(segments, d => `${d.month.month}-${d.component.key}`).join('rect')
+      .attr('class', d => `d3-smart-segment mix-segment mix-${d.component.key}`)
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => d.component.tooltip)
+      .attr('data-tooltip', d => d.component.tooltip);
+    segmentSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => d.y)
+      .attr('height', d => d.height);
+    bindTooltip(segmentSelection);
+
+    const totalSelection = svg.selectAll('.d3-smart-total').data(totals, d => d.month.month).join('rect')
+      .attr('class', 'd3-smart-total mix-total-bar')
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => `${d.month.label} parent Smart Cards: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete subtype days)` : ` across ${d.month.completeDays} complete subtype days`}`)
+      .attr('data-tooltip', d => `${d.month.label} parent Smart Cards: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete subtype days)` : ` across ${d.month.completeDays} complete subtype days`}`);
+    totalSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => d.y)
+      .attr('height', d => d.height);
+    bindTooltip(totalSelection);
+
+    svg.selectAll('.mix-gap').data(gaps, d => d.month.month).join('rect')
+      .attr('class', 'mix-gap')
+      .attr('x', d => x(d.monthIndex) - barWidth / 2)
+      .attr('y', top)
+      .attr('width', barWidth)
+      .attr('height', shareH);
+    svg.selectAll('.mix-coverage-label').data(months.filter(d => d.components.some(component => component.share != null)), d => d.month).join('text')
+      .attr('class', 'mix-coverage-label')
+      .attr('x', d => x(months.indexOf(d)))
+      .attr('y', totalBase + 17)
+      .attr('text-anchor', 'middle')
+      .text(d => `${d.completeDays}/${d.publishedDays}d`);
+
+    svg.selectAll('.mix-x-label').data(months, d => d.month).join('text')
+      .attr('class', 'd3-x-label mix-x-label')
+      .attr('x', (d, i) => x(i))
+      .attr('y', labelY)
+      .attr('text-anchor', 'middle')
+      .text(d => d.label);
+
+    const legendItems = narrow
+      ? [['stored-value','Stored',0],['one-day-pass','1-day',72],['three-day-pass','3-day',136],['five-day-pass','5-day',200]]
+      : [['stored-value','Stored Value',0],['one-day-pass','One Day',104],['three-day-pass','Three Day',188],['five-day-pass','Five Day',272]];
+    const legendWidth = narrow ? 270 : 330;
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend mix-svg-legend').attr('transform', `translate(${Math.max(left, width - right - legendWidth)},8)`);
+    legendItems.forEach(([key,label,dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      item.append('rect').attr('class', `mix-key mix-${key}`).attr('x', 2).attr('y', -4).attr('width', 10).attr('height', 10).attr('rx', 2);
+      item.append('text').attr('x', 18).attr('y', 6).text(label);
+    });
+    choreograph(scene.node());
+  };
+
   const buildDataCardHTML = (card) => {
     const endIdx = dates.indexOf(payload.range.end);
     const prevDisabled = endIdx <= 0;
@@ -711,11 +1455,262 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+
+  const renderWeekdayDistribution = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-dist-scene');
+    const days = payload.charts.weekdayDistribution?.days || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.dist-empty-message').remove();
+    if (!days.length) {
+      scene.append('p').attr('class', 'dist-empty-message').text('No weekday observations are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    scene.selectAll('.d3-insight').data(payload.charts.weekdayDistribution?.insight ? [payload.charts.weekdayDistribution.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const width = 1100, height = 400, left = 64, right = 28, top = 32, bottom = 68;
+    const plotWidth = width - left - right, plotHeight = height - top - bottom;
+    const maxValue = Math.max(1, ...days.map(d => d.maximum || 0));
+    const x = index => left + plotWidth * (index + 0.5) / 7;
+    const y = value => top + plotHeight - value / maxValue * plotHeight;
+    const svg = scene.append('svg')
+      .attr('class', 'd3-dist-svg')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Weekday distributions of observed daily totals, enhanced with D3');
+    for (let tick = 0; tick <= 4; tick++) {
+      const value = maxValue * tick / 4;
+      const yy = y(value);
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 10).attr('y', yy + 4).attr('text-anchor', 'end').text(compact(value));
+    }
+    days.forEach((day, index) => {
+      const xx = x(index);
+      svg.append('text').attr('class', 'd3-x-label dist-x-label').attr('x', xx).attr('y', height - 28).attr('text-anchor', 'middle').text(day.weekdayShort);
+      if (!day.n) {
+        svg.append('text').attr('class', 'dist-empty').attr('x', xx).attr('y', top + plotHeight / 2).attr('text-anchor', 'middle').text('n 0');
+        return;
+      }
+      const hit = svg.append('rect')
+        .attr('class', 'd3-dist-hit')
+        .attr('x', xx - 48).attr('y', top).attr('width', 96).attr('height', plotHeight)
+        .attr('fill', 'transparent')
+        .attr('tabindex', 0)
+        .attr('role', 'img')
+        .attr('aria-label', day.tooltip)
+        .attr('data-tooltip', day.tooltip);
+      bindTooltip(hit);
+      const group = svg.append('g').attr('class', 'd3-dist-day').attr('aria-hidden', 'true');
+      const minY = y(day.minimum || 0), maxY = y(day.maximum || 0), q1Y = y(day.lowerQuartile || 0), q3Y = y(day.upperQuartile || 0), medY = y(day.median || 0);
+      const boxHeight = Math.max(1, q1Y - q3Y);
+      group.append('line').attr('class', 'dist-whisker').attr('x1', xx).attr('x2', xx).attr('y1', maxY).attr('y2', minY);
+      group.append('line').attr('class', 'dist-cap').attr('x1', xx - 22).attr('x2', xx + 22).attr('y1', maxY).attr('y2', maxY);
+      group.append('line').attr('class', 'dist-cap').attr('x1', xx - 22).attr('x2', xx + 22).attr('y1', minY).attr('y2', minY);
+      const box = group.append('rect').attr('class', 'dist-box').attr('x', xx - 27).attr('width', 54);
+      const median = group.append('line').attr('class', 'dist-median').attr('x1', xx - 27).attr('x2', xx + 27);
+      group.append('text').attr('class', 'dist-n').attr('x', xx).attr('y', height - 9).attr('text-anchor', 'middle').text(`n ${day.n}`);
+      if (canAnimate && animate) {
+        box.attr('y', medY).attr('height', 1).transition().duration(360).attr('y', q3Y).attr('height', boxHeight);
+        median.attr('y1', medY).attr('y2', medY).attr('opacity', 0).transition().duration(360).attr('opacity', 1);
+      } else {
+        box.attr('y', q3Y).attr('height', boxHeight);
+        median.attr('y1', medY).attr('y2', medY);
+      }
+    });
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend dist-svg-legend').attr('transform', `translate(${width - right - 360},10)`);
+    [['dist-key-box','Interquartile range',0],['dist-key-median','Median',150],['dist-key-whisker','Observed range',220]].forEach(([cls,label,dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      item.append('rect').attr('class', `dist-key ${cls}`).attr('x', 2).attr('y', -4).attr('width', 10).attr('height', 10).attr('rx', 2);
+      item.append('text').attr('x', 18).attr('y', 6).text(label);
+    });
+    choreograph(scene.node());
+  };
+
+
+  const renderWeekendSignatures = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-signature-scene');
+    const groups = payload.charts.weekendSignatures?.groups || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.signature-empty').remove();
+    if (!groups.length) {
+      scene.append('p').attr('class', 'signature-empty').text('No day groups are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    scene.selectAll('.d3-insight').data(payload.charts.weekendSignatures?.insight ? [payload.charts.weekendSignatures.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const width = 1100, height = 440, left = 56, right = 30, top = 74, boxH = 178, shareY = 318, shareH = 30;
+    const panelWidth = (width - left - right) / 3;
+    const maxValue = Math.max(1, ...groups.map(d => d.maximum || 0));
+    const y = value => top + boxH - value / maxValue * boxH;
+    const svg = scene.append('svg')
+      .attr('class', 'd3-signature-svg')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Weekday, Saturday, and Sunday total distributions with fare-media shares, enhanced with D3');
+    for (let tick = 0; tick <= 3; tick++) {
+      const value = maxValue * tick / 3;
+      const yy = y(value);
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 10).attr('y', yy + 4).attr('text-anchor', 'end').text(compact(value));
+    }
+    groups.forEach((group, index) => {
+      const panelX = left + panelWidth * index;
+      const centre = panelX + panelWidth / 2;
+      const hit = svg.append('rect')
+        .attr('class', 'd3-signature-hit')
+        .attr('x', panelX + 3).attr('y', 18).attr('width', panelWidth - 6).attr('height', 276)
+        .attr('fill', 'transparent').attr('tabindex', 0).attr('role', 'img')
+        .attr('aria-label', group.tooltip).attr('data-tooltip', group.tooltip);
+      bindTooltip(hit);
+      svg.append('text').attr('class', 'signature-title').attr('x', centre).attr('y', 34).attr('text-anchor', 'middle').text(group.label);
+      svg.append('text').attr('class', 'signature-n').attr('x', centre).attr('y', 55).attr('text-anchor', 'middle').text(`${group.completeDays} complete of ${group.publishedDays} published`);
+      if (group.completeDays > 0) {
+        const minY = y(group.minimum || 0), maxY = y(group.maximum || 0), q1Y = y(group.lowerQuartile || 0), q3Y = y(group.upperQuartile || 0), medY = y(group.median || 0);
+        const g = svg.append('g').attr('class', 'd3-signature-box').attr('aria-hidden', 'true');
+        g.append('line').attr('class', 'dist-whisker').attr('x1', centre).attr('x2', centre).attr('y1', maxY).attr('y2', minY);
+        g.append('line').attr('class', 'dist-cap').attr('x1', centre - 25).attr('x2', centre + 25).attr('y1', maxY).attr('y2', maxY);
+        g.append('line').attr('class', 'dist-cap').attr('x1', centre - 25).attr('x2', centre + 25).attr('y1', minY).attr('y2', minY);
+        const box = g.append('rect').attr('class', 'dist-box').attr('x', centre - 29).attr('width', 58);
+        const median = g.append('line').attr('class', 'dist-median').attr('x1', centre - 29).attr('x2', centre + 29);
+        if (canAnimate && animate) {
+          box.attr('y', medY).attr('height', 1).transition().duration(360).attr('y', q3Y).attr('height', Math.max(1, q1Y - q3Y));
+          median.attr('y1', medY).attr('y2', medY).attr('opacity', 0).transition().duration(360).attr('opacity', 1);
+        } else {
+          box.attr('y', q3Y).attr('height', Math.max(1, q1Y - q3Y));
+          median.attr('y1', medY).attr('y2', medY);
+        }
+      } else {
+        svg.append('text').attr('class', 'dist-empty').attr('x', centre).attr('y', top + boxH / 2).attr('text-anchor', 'middle').text('No complete days');
+      }
+      svg.append('text').attr('class', 'signature-share-label').attr('x', centre).attr('y', shareY - 10).attr('text-anchor', 'middle').text('Aggregate fare-media shares');
+      const barX = panelX + 24, barWidth = panelWidth - 48;
+      let cursor = barX;
+      if ((group.components || []).some(component => component.value > 0)) {
+        group.components.forEach(component => {
+          const segmentWidth = (component.share || 0) * barWidth;
+          const segment = svg.append('rect')
+            .attr('class', `d3-signature-share mix-${component.key}`)
+            .attr('x', cursor).attr('y', shareY)
+            .attr('width', Math.max(component.value > 0 ? 1 : 0, segmentWidth)).attr('height', shareH)
+            .attr('tabindex', 0).attr('role', 'img').attr('aria-label', component.tooltip).attr('data-tooltip', component.tooltip);
+          bindTooltip(segment);
+          if (canAnimate && animate) {
+            const targetX = cursor, targetWidth = Math.max(component.value > 0 ? 1 : 0, segmentWidth);
+            segment.attr('x', barX).attr('width', 0).transition().duration(380).attr('x', targetX).attr('width', targetWidth);
+          }
+          cursor += segmentWidth;
+        });
+      } else {
+        svg.append('rect').attr('class', 'mix-gap').attr('x', barX).attr('y', shareY).attr('width', barWidth).attr('height', shareH);
+      }
+    });
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend signature-svg-legend').attr('transform', `translate(${width / 2 - 235},398)`);
+    [['smart-card','Smart Cards',0],['ncmc','NCMC',112],['token','Tokens',190],['qr','QR',262],['group-ticket','Group Ticket',306]].forEach(([key,label,dx]) => {
+      const item = legend.append('g').attr('transform', `translate(${dx},0)`);
+      item.append('rect').attr('class', `mix-key mix-${key}`).attr('x', 2).attr('y', -10).attr('width', 10).attr('height', 10).attr('rx', 2);
+      item.append('text').attr('x', 18).attr('y', 0).text(label);
+    });
+    choreograph(scene.node());
+  };
+
+
+  const renderMonthWeekdayMatrix = (animate = true) => {
+    const scene = ensureScene('d3-matrix-scene');
+    const matrix = payload.charts.monthWeekdayMatrix || {months: [], cells: []};
+    if (!matrix.months.length) {
+      scene.html('<p class="matrix-empty">No months are available in the selected range.</p>');
+      choreograph(scene.node());
+      return;
+    }
+    let html = `<p class="d3-insight insight">${matrix.insight || ''}</p><div class="matrix-scroll"><div class="weekday-matrix" role="grid" aria-label="Month by weekday ratio matrix"><span class="matrix-corner"></span>`;
+    ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(day => { html += `<span class="matrix-heading">${day}</span>`; });
+    matrix.months.forEach(month => {
+      html += `<span class="matrix-row-label">${month.label}</span>`;
+      for (let weekdayIndex = 0; weekdayIndex < 7; weekdayIndex++) {
+        const cell = matrix.cells.find(item => item.month === month.month && item.weekdayIndex === weekdayIndex);
+        if (!cell) {
+          html += '<span class="matrix-cell matrix-empty"><b>—</b><small>n 0</small></span>';
+          continue;
+        }
+        const main = cell.n ? (cell.ratioLabel || '—') : '—';
+        const medianLine = cell.n && cell.ratio == null && cell.medianLabel ? `<small>med ${cell.medianLabel}</small>` : '';
+        html += `<span class="matrix-cell matrix-${cell.cssClass}" style="--heat:${cell.heat}" role="gridcell" tabindex="0" aria-label="${cell.tooltip}" data-tooltip="${cell.tooltip}"><b>${main}</b>${medianLine}<small>n ${cell.n}</small></span>`;
+      }
+    });
+    html += '</div></div><div class="matrix-legend"><span><i class="matrix-key matrix-high"></i>Above baseline</span><span><i class="matrix-key matrix-neutral"></i>Near baseline</span><span><i class="matrix-key matrix-low"></i>Below baseline</span><span><i class="matrix-key matrix-empty"></i>No observations</span></div>';
+    scene.html(html);
+    if (D3) bindTooltip(scene.selectAll('.matrix-cell[data-tooltip]'));
+    if (canAnimate && animate && GSAP) {
+      GSAP.fromTo(scene.selectAll('.matrix-cell').nodes(), {opacity: 0, scale: .94}, {opacity: 1, scale: 1, duration: .28, stagger: .006, ease: 'power2.out'});
+    }
+    choreograph(scene.node());
+  };
+
+
+  const renderHtmlPayloadChart = (sceneClass, html, emptyMessage) => {
+    const scene = ensureScene(sceneClass);
+    scene.html(html || `<p class="html-chart-empty">${emptyMessage}</p>`);
+    // Payload HTML reuses the SSR root class. Strip that fallback marker inside
+    // the D3 scene so progressive-enhancement hiding only applies to the SSR node.
+    scene.select('.variability-ssr-wrap,.pulse-ssr-wrap,.estimate-ssr-wrap,.fields-ssr-wrap')
+      .classed('variability-ssr-wrap', false).classed('pulse-ssr-wrap', false)
+      .classed('estimate-ssr-wrap', false).classed('fields-ssr-wrap', false);
+    if (D3) bindTooltip(scene.selectAll('[data-tooltip]'));
+    if (canAnimate && GSAP) {
+      GSAP.fromTo(scene.selectAll('.html-anim').nodes(), {opacity: 0, y: 8}, {opacity: 1, y: 0, duration: .3, stagger: .025, ease: 'power2.out'});
+    }
+    choreograph(scene.node());
+  };
+
+  const renderVariabilityRanking = () => renderHtmlPayloadChart('d3-variability-scene', payload.charts.variabilityRanking?.html, 'No variability ranking is available in the selected range.');
+  const renderReportingPulse = () => renderHtmlPayloadChart('d3-pulse-scene', payload.charts.reportingPulse?.html, 'No reporting completeness data is available in the selected range.');
+  const renderMonthlyEstimates = () => renderHtmlPayloadChart('d3-estimate-scene', payload.charts.monthlyEstimates?.html, 'No monthly estimates are available in the selected range.');
+  const renderFieldCompleteness = () => renderHtmlPayloadChart('d3-fields-scene', payload.charts.fieldCompleteness?.html, 'No field completeness data is available in the selected range.');
+
+  const syncAccessibleTable = (tableHtml) => {
+    chartShell.querySelectorAll(':scope > .accessible-data').forEach(node => node.remove());
+    if (tableHtml) chartShell.insertAdjacentHTML('beforeend', tableHtml);
+  };
+
+  const accessibleTableForChart = (slug) => {
+    const charts = payload.charts || {};
+    if (slug === 'weekday-baseline') return charts.weekdayBaseline?.tableHtml;
+    if (slug === 'component-waterfall') return charts.componentWaterfall?.tableHtml;
+    if (slug === 'fare-media-mix') return charts.fareMediaMix?.tableHtml;
+    if (slug === 'ncmc-share') return charts.ncmcShare?.tableHtml;
+    if (slug === 'qr-channel-mix') return charts.qrMix?.tableHtml;
+    if (slug === 'smart-card-mix') return charts.smartMix?.tableHtml;
+    if (slug === 'weekday-distributions') return charts.weekdayDistribution?.tableHtml;
+    if (slug === 'weekend-signatures') return charts.weekendSignatures?.tableHtml;
+    if (slug === 'month-weekday-matrix') return charts.monthWeekdayMatrix?.tableHtml;
+    return null;
+  };
+
   const renderActiveChart = (animate = true) => {
+    hideTooltipImmediately();
     syncChartChrome();
     if (activeChart === 'data-card') renderDataCard(animate);
     else if (activeChart === 'calendar') renderCalendar(animate);
-    else renderLine(animate);
+    else if (activeChart === 'commute-casual') renderLine(animate);
+    else if (activeChart === 'weekday-baseline') renderBaseline(animate);
+    else if (activeChart === 'component-waterfall') renderWaterfall(animate);
+    else if (activeChart === 'fare-media-mix') renderFareMix(animate);
+    else if (activeChart === 'ncmc-share') renderNcmcShare(animate);
+    else if (activeChart === 'qr-channel-mix') renderQrMix(animate);
+    else if (activeChart === 'smart-card-mix') renderSmartMix(animate);
+    else if (activeChart === 'weekday-distributions') renderWeekdayDistribution(animate);
+    else if (activeChart === 'weekend-signatures') renderWeekendSignatures(animate);
+    else if (activeChart === 'month-weekday-matrix') renderMonthWeekdayMatrix(animate);
+    else if (activeChart === 'variability-ranking') renderVariabilityRanking();
+    else if (activeChart === 'reporting-pulse') renderReportingPulse();
+    else if (activeChart === 'monthly-estimates') renderMonthlyEstimates();
+    else renderFieldCompleteness();
+    syncAccessibleTable(accessibleTableForChart(activeChart));
   };
 
   // The static site ships a wasm compute core; when present, range changes
@@ -831,6 +1826,13 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     clearTimeout(chartResizeTimer);
     chartResizeTimer = setTimeout(() => {
       if (activeChart === 'commute-casual') renderLine(false);
+      if (activeChart === 'fare-media-mix') renderFareMix(false);
+      if (activeChart === 'ncmc-share') renderNcmcShare(false);
+      if (activeChart === 'qr-channel-mix') renderQrMix(false);
+      if (activeChart === 'smart-card-mix') renderSmartMix(false);
+      if (activeChart === 'weekday-distributions') renderWeekdayDistribution(false);
+      if (activeChart === 'weekend-signatures') renderWeekendSignatures(false);
+      if (activeChart === 'month-weekday-matrix') renderMonthWeekdayMatrix(false);
     }, 120);
   });
   // Day cycling buttons on the data card — change the end date by one
@@ -866,6 +1868,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
     chartStage.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
+      if (e.target.closest('.matrix-scroll,.d3-mix-scene,.d3-ncmc-scene,.d3-qr-scene,.d3-smart-scene')) return;
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
       touchActive = true;

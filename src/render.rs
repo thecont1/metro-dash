@@ -7,10 +7,17 @@ use topcoat::{
 };
 
 use crate::charts::{
-    CHARTS, Chart, calendar_markup, data_card_markup, escape_attr, line_chart_markup,
+    CHARTS, Chart, baseline_chart_markup, calendar_markup, data_card_markup, escape_attr,
+    fare_mix_chart_markup, line_chart_markup, month_weekday_matrix_markup, ncmc_share_chart_markup,
+    qr_mix_chart_markup, smart_mix_chart_markup, waterfall_chart_markup,
+    weekday_distribution_chart_markup, weekend_signature_chart_markup,
 };
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
-use crate::data::{Dataset, DateRange, SOURCE_PAGE_URL, choose_range, record_index};
+use crate::data::{
+    Dataset, DateRange, SOURCE_PAGE_URL, choose_range, component_waterfall, fare_mix_series,
+    month_weekday_matrix, ncmc_share_series, qr_mix_series, record_index, smart_mix_series,
+    weekday_baseline_series, weekday_distribution_series, weekend_signature_series,
+};
 use crate::payload::{chart_payload_for, range_presets};
 use crate::style::STYLE;
 
@@ -122,7 +129,8 @@ pub fn date_select_markup(
 pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Chart) -> Result {
     let range = choose_range(&dataset, query.start.as_deref(), query.end.as_deref());
     let summary = crate::data::summarise(&dataset, range);
-    let payload_json = serde_json::to_string(&chart_payload_for(&dataset, range))
+    let chart_payload = chart_payload_for(&dataset, range);
+    let payload_json = serde_json::to_string(&chart_payload)
         .expect("chart payload should serialize")
         .replace("</", "<\\/");
     let chart_idx = chart.index();
@@ -145,6 +153,29 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         Chart::DataCard => data_card_markup(&dataset, range),
         Chart::Calendar => calendar_markup(&dataset, range, &summary),
         Chart::CommuteCasual => line_chart_markup(&summary),
+        Chart::WeekdayBaseline => {
+            baseline_chart_markup(&weekday_baseline_series(&dataset, range), range)
+        }
+        Chart::ComponentWaterfall => {
+            waterfall_chart_markup(component_waterfall(&dataset, range.end).as_ref())
+        }
+        Chart::FareMediaMix => fare_mix_chart_markup(&fare_mix_series(&dataset, range)),
+        Chart::NcmcShare => ncmc_share_chart_markup(&ncmc_share_series(&dataset, range)),
+        Chart::QrMix => qr_mix_chart_markup(&qr_mix_series(&dataset, range)),
+        Chart::SmartMix => smart_mix_chart_markup(&smart_mix_series(&dataset, range)),
+        Chart::WeekdayDistribution => {
+            weekday_distribution_chart_markup(&weekday_distribution_series(&dataset, range))
+        }
+        Chart::WeekendSignatures => {
+            weekend_signature_chart_markup(&weekend_signature_series(&dataset, range))
+        }
+        Chart::MonthWeekdayMatrix => {
+            month_weekday_matrix_markup(&month_weekday_matrix(&dataset, range))
+        }
+        Chart::VariabilityRanking => chart_payload.charts.variability_ranking.html.clone(),
+        Chart::ReportingPulse => chart_payload.charts.reporting_pulse.html.clone(),
+        Chart::MonthlyEstimates => chart_payload.charts.monthly_estimates.html.clone(),
+        Chart::FieldCompleteness => chart_payload.charts.field_completeness.html.clone(),
     };
     let start_date_selects = date_select_markup(
         "start-date",

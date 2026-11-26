@@ -3,13 +3,31 @@ use std::fmt::Write as _;
 
 use chrono::{Datelike, NaiveDate, Weekday};
 
-use crate::data::{Dataset, DateRange, RangeSummary, RidershipRecord, WeekdayMetric};
+use crate::data::{
+    BaselineStatus, CategoryVariability, ComponentWaterfall, Dataset, DateRange, FareMixMonth,
+    FieldCompletenessMonth, MonthWeekdayMatrix, MonthlyEstimate, NcmcShareWeek, QrMixMonth,
+    RangeSummary, ReportingPulseMonth, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint,
+    WeekdayDistribution, WeekdayMetric, WeekendSignature,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Chart {
     DataCard,
     Calendar,
     CommuteCasual,
+    WeekdayBaseline,
+    ComponentWaterfall,
+    FareMediaMix,
+    NcmcShare,
+    QrMix,
+    SmartMix,
+    WeekdayDistribution,
+    WeekendSignatures,
+    MonthWeekdayMatrix,
+    VariabilityRanking,
+    ReportingPulse,
+    MonthlyEstimates,
+    FieldCompleteness,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -21,7 +39,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 3] = [
+pub static CHARTS: [ChartDefinition; 16] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -42,6 +60,97 @@ pub static CHARTS: [ChartDefinition; 3] = [
         title: "Commute vs Casual by Weekday",
         deck: "Average journeys by day of week, using the dates you've selected.",
         method: "Lines show the weekday pattern for two rider groups: people who pay by Smart Card or NCMC (closed-loop), and everyone else (QR + token + group). Averages skip days missing any component of the relevant group.",
+    },
+    ChartDefinition {
+        chart: Chart::WeekdayBaseline,
+        slug: "weekday-baseline",
+        title: "Unusual for its Weekday?",
+        deck: "Daily totals derived from fare media, compared with nearby reports from the same weekday.",
+        method: "Each point is a daily total derived from published fare-media components. The band is the interquartile range of up to 6 earlier and 6 later published reports from the same weekday; the line is their median. At least 4 nearby reports are required. The current day is never included in its own baseline, and missing reports are not treated as zero.",
+    },
+    ChartDefinition {
+        chart: Chart::ComponentWaterfall,
+        slug: "component-waterfall",
+        title: "What Accounts for the Difference?",
+        deck: "Fare-media contributions to the selected day's difference from its same-weekday reference.",
+        method: "Uses the end date and the published parent totals. Each reference is the median of up to 6 earlier and 6 later same-weekday reports with complete components; provider sums are not substituted because QR splits can diverge. Bars sum exactly to the total difference — arithmetic decomposition, not causal attribution. The axis is zoomed to make movements visible.",
+    },
+    ChartDefinition {
+        chart: Chart::FareMediaMix,
+        slug: "fare-media-mix",
+        title: "How is the Fare-Media Mix Shifting?",
+        deck: "Monthly share mix, with the observed absolute total shown separately underneath.",
+        method: "Each month uses only published days with complete parent components. Upper bars are shares of the observed total; lower bars are the observed absolute total for those same complete days, not full-month totals. Missing reports and incomplete components are never zero-filled. Shares are aggregate fare-media composition, not evidence that individual riders switched payment method.",
+    },
+    ChartDefinition {
+        chart: Chart::NcmcShare,
+        slug: "ncmc-share",
+        title: "How is NCMC’s Share Changing?",
+        deck: "Weekly NCMC share of Smart Cards + NCMC, with the NCMC count shown separately underneath.",
+        method: "Weeks aggregate only days where both Smart Card and NCMC are present, so the share and count use the same evidence base. Complete/published day counts make uneven week coverage visible. Missing values are never zero-filled. This is fare-media arithmetic, not proof that Smart Card users converted to NCMC.",
+    },
+    ChartDefinition {
+        chart: Chart::QrMix,
+        slug: "qr-channel-mix",
+        title: "Which QR Channels Make Up QR Use?",
+        deck: "Monthly provider-level shares, with parent Total QR shown separately underneath.",
+        method: "Months aggregate days where all four QR provider fields are present. Shares use the provider sum because provider splits do not always reconcile with parent Total QR; the lower strip shows parent Total QR for the same complete days. Zero is treated as reported zero, while missing fields exclude the day. This describes aggregate channel mix, not individual app use.",
+    },
+    ChartDefinition {
+        chart: Chart::SmartMix,
+        slug: "smart-card-mix",
+        title: "What is Inside Smart Cards?",
+        deck: "Monthly Smart Card subtype shares, with parent Smart Cards shown separately underneath.",
+        method: "Months aggregate days where all four Smart Card subtype fields are present. Shares use the subtype sum; the lower strip shows the published parent Smart Card total for the same complete days. Missing fields exclude the day rather than becoming zero. These are fare-media counts, not unique people or trip purposes.",
+    },
+    ChartDefinition {
+        chart: Chart::WeekdayDistribution,
+        slug: "weekday-distributions",
+        title: "How Predictable is Each Weekday?",
+        deck: "Observed daily-total distributions for every weekday in the selected range.",
+        method: "For each weekday, the box spans the interquartile range, the centre line is the median, and whiskers span the full observed range. Only published derived totals count; missing reports are omitted rather than zero-filled. A wide range is descriptive variability, not evidence of crowding or capacity pressure.",
+    },
+    ChartDefinition {
+        chart: Chart::WeekendSignatures,
+        slug: "weekend-signatures",
+        title: "How Does the Weekend Signature Differ?",
+        deck: "Monday–Friday, Saturday, and Sunday total distributions beside their fare-media share mix.",
+        method: "Each panel uses only published days with complete parent components, so the total distribution and share mix share the same evidence base. Boxes show median, interquartile range, and observed range; bars show aggregate fare-media shares summed over those same days. Day groups are calendar labels, not observed commuter or leisure identities.",
+    },
+    ChartDefinition {
+        chart: Chart::MonthWeekdayMatrix,
+        slug: "month-weekday-matrix",
+        title: "Does the Weekday Pattern Vary by Month?",
+        deck: "Month-by-weekday medians as ratios to each weekday’s overall level in the selected range.",
+        method: "Each cell is the median of published daily totals for that month and weekday, divided by the median for that weekday across the whole selected range. Purple is above the weekday baseline, rust below, and grey near it; n appears in every cell. Empty cells have no published totals. Ratios are descriptive and unstable with small samples.",
+    },
+    ChartDefinition {
+        chart: Chart::VariabilityRanking,
+        slug: "variability-ranking",
+        title: "Which Fare Media Vary Most?",
+        deck: "Parent categories ranked by robust day-to-day variability in the selected range.",
+        method: "Categories are ranked by interquartile range relative to their median; labels also show the absolute IQR in journeys and n. Each category uses its own published parent values, blanks are omitted, and zeros remain reported zeros. Variation can reflect growth, reporting gaps, or recording changes — not crowding or vehicle loads.",
+    },
+    ChartDefinition {
+        chart: Chart::ReportingPulse,
+        slug: "reporting-pulse",
+        title: "How Complete is the Reporting Record?",
+        deck: "Monthly observed days, missing days, coverage, and the longest unpublished run.",
+        method: "Observed means a row was published for that calendar day. Missing means no published row; it is not zero ridership and not evidence of no metro service. Coverage and longest-gap calculations use the selected range clipped to each month.",
+    },
+    ChartDefinition {
+        chart: Chart::MonthlyEstimates,
+        slug: "monthly-estimates",
+        title: "What if Reporting Gaps are Filled?",
+        deck: "Monthly observed totals separated from weekday-based estimates for unpublished days.",
+        method: "Observed segments sum published derived totals only. Missing days are filled with same-month, same-weekday means, falling back to the month mean when a weekday has no observations. The range endpoints vary those fills by ±20% as a sensitivity illustration, not a confidence interval or official total. Incomplete months and coverage remain explicit.",
+    },
+    ChartDefinition {
+        chart: Chart::FieldCompleteness,
+        slug: "field-completeness",
+        title: "Are Some Fields Less Complete?",
+        deck: "Month-by-field nonblank coverage for parent categories, Smart Card subtypes, QR providers, and derived totals.",
+        method: "Cells count nonblank source fields over published rows in each month; months with no published rows remain empty. Total derivable is the app's derived total, not an independent official total. Completeness shows whether periods are safe to compare, but cannot prove component values are correct.",
     },
 ];
 
@@ -522,6 +631,1917 @@ pub fn line_chart_markup(summary: &RangeSummary) -> String {
     svg.push_str(&line_table(summary));
     svg.push_str("</div>");
     svg
+}
+
+fn baseline_delta_pct(point: &WeekdayBaselinePoint) -> Option<f64> {
+    point
+        .median
+        .filter(|median| *median != 0.0)
+        .map(|median| (point.total - median) / median * 100.0)
+}
+
+fn baseline_point_label(point: &WeekdayBaselinePoint) -> String {
+    let date = point.date.format("%A, %-d %B %Y");
+    let total = format_number_full(point.total);
+    match (point.median, point.lower_quartile, point.upper_quartile) {
+        (Some(median), Some(lower), Some(upper)) => {
+            let delta = baseline_delta_pct(point)
+                .map(|value| format!("{value:+.1}%"))
+                .unwrap_or_else(|| "—".to_string());
+            format!(
+                "{date}: {total} total journeys, {} the same-weekday baseline. Median {}, interquartile band {}–{}, delta {delta}, baseline n {}.",
+                point.status.label().to_lowercase(),
+                format_number_full(median),
+                format_number_full(lower),
+                format_number_full(upper),
+                point.baseline_n
+            )
+        }
+        _ => format!(
+            "{date}: {total} total journeys. Baseline unavailable; only {} nearby same-weekday reports.",
+            point.baseline_n
+        ),
+    }
+}
+
+pub fn baseline_insight(points: &[WeekdayBaselinePoint]) -> String {
+    let high = points
+        .iter()
+        .filter(|point| point.status == BaselineStatus::High)
+        .count();
+    let low = points
+        .iter()
+        .filter(|point| point.status == BaselineStatus::Low)
+        .count();
+    let insufficient = points
+        .iter()
+        .filter(|point| point.status == BaselineStatus::Insufficient)
+        .count();
+    let mut parts = Vec::new();
+    if high > 0 {
+        parts.push(format!("{high} above"));
+    }
+    if low > 0 {
+        parts.push(format!("{low} below"));
+    }
+    if parts.is_empty() {
+        if !points.is_empty() && insufficient == points.len() {
+            "No baseline comparison was possible in this range; every published day lacks enough nearby reports.".to_string()
+        } else if insufficient > 0 {
+            format!(
+                "All assessed reported days were within their weekday baseline band; {insufficient} lack enough nearby reports."
+            )
+        } else {
+            "All assessed reported days were within their weekday baseline band.".to_string()
+        }
+    } else {
+        let mut text = format!(
+            "Reported days outside their weekday baseline band: {}",
+            parts.join(" and ")
+        );
+        if insufficient > 0 {
+            text.push_str(&format!("; {insufficient} lack enough nearby reports"));
+        }
+        text.push('.');
+        text
+    }
+}
+
+pub fn baseline_chart_markup(points: &[WeekdayBaselinePoint], range: DateRange) -> String {
+    if points.is_empty() {
+        return r#"<div class="baseline-wrap"><p class="baseline-empty">No published totals are available in this range.</p></div>"#.to_string();
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 360.0;
+    const LEFT: f64 = 70.0;
+    const RIGHT: f64 = 34.0;
+    const TOP: f64 = 36.0;
+    const BOTTOM: f64 = 52.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let plot_height = HEIGHT - TOP - BOTTOM;
+    let span_days = (range.end - range.start).num_days().max(1) as f64;
+    let x =
+        |date: NaiveDate| LEFT + ((date - range.start).num_days() as f64 / span_days) * plot_width;
+    let min_value = points
+        .iter()
+        .flat_map(|point| [Some(point.total), point.lower_quartile])
+        .flatten()
+        .reduce(f64::min)
+        .unwrap_or(0.0);
+    let max_value = points
+        .iter()
+        .flat_map(|point| [Some(point.total), point.upper_quartile])
+        .flatten()
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let spread = (max_value - min_value).max(1.0);
+    let y_min = (min_value - spread * 0.08).max(0.0);
+    let y_max = max_value + spread * 0.08;
+    let y = |value: f64| TOP + plot_height - (value - y_min) / (y_max - y_min) * plot_height;
+    let mut svg = format!(
+        r#"<div class="baseline-wrap"><svg class="baseline-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Daily ridership compared with rolling same-weekday baseline"><g class="grid">"#
+    );
+    for tick in 0..=4 {
+        let value = y_min + (y_max - y_min) * tick as f64 / 4.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 10.0,
+            yy + 4.0,
+            compact_number(value)
+        ));
+    }
+    let actual_span_days = (range.end - range.start).num_days();
+    let mut tick_dates = Vec::new();
+    for tick in 0..=5 {
+        let offset = (actual_span_days as f64 * tick as f64 / 5.0).round() as i64;
+        let date = (range.start + chrono::Duration::days(offset)).min(range.end);
+        if tick_dates.last() != Some(&date) {
+            tick_dates.push(date);
+        }
+    }
+    for date in tick_dates {
+        let xx = x(date);
+        svg.push_str(&format!(
+            r#"<text class="x-label" x="{xx:.1}" y="{}" text-anchor="middle">{}</text>"#,
+            HEIGHT - 26.0,
+            date.format("%d %b '%y")
+        ));
+    }
+
+    let band_points: Vec<_> = points
+        .iter()
+        .filter(|point| point.lower_quartile.is_some() && point.upper_quartile.is_some())
+        .collect();
+    if band_points.len() >= 2 {
+        let mut path = String::new();
+        for (index, point) in band_points.iter().enumerate() {
+            let command = if index == 0 { 'M' } else { 'L' };
+            write!(
+                path,
+                "{command} {:.1} {:.1} ",
+                x(point.date),
+                y(point.upper_quartile.expect("band point has upper quartile"))
+            )
+            .unwrap();
+        }
+        for point in band_points.iter().rev() {
+            write!(
+                path,
+                "L {:.1} {:.1} ",
+                x(point.date),
+                y(point.lower_quartile.expect("band point has lower quartile"))
+            )
+            .unwrap();
+        }
+        svg.push_str(&format!(
+            r#"<path class="baseline-band" d="{path}Z"></path>"#
+        ));
+    }
+
+    let median_points: Vec<_> = points
+        .iter()
+        .filter(|point| point.median.is_some())
+        .collect();
+    if median_points.len() >= 2 {
+        let mut path = String::new();
+        for (index, point) in median_points.iter().enumerate() {
+            let command = if index == 0 { 'M' } else { 'L' };
+            write!(
+                path,
+                "{command} {:.1} {:.1} ",
+                x(point.date),
+                y(point.median.expect("median point has median"))
+            )
+            .unwrap();
+        }
+        svg.push_str(&format!(
+            r#"<path class="baseline-median" d="{path}" fill="none"></path>"#
+        ));
+    }
+
+    if points.len() >= 2 {
+        let mut path = String::new();
+        for (index, point) in points.iter().enumerate() {
+            let gap = index
+                .checked_sub(1)
+                .map(|previous| (point.date - points[previous].date).num_days())
+                .unwrap_or(0);
+            let command = if index == 0 || gap > 7 { 'M' } else { 'L' };
+            write!(
+                path,
+                "{command} {:.1} {:.1} ",
+                x(point.date),
+                y(point.total)
+            )
+            .unwrap();
+        }
+        svg.push_str(&format!(
+            r#"<path class="baseline-actual" d="{path}" fill="none"></path>"#
+        ));
+    }
+
+    for point in points {
+        let label = baseline_point_label(point);
+        let safe = escape_attr(&label);
+        let xx = x(point.date);
+        let yy = y(point.total);
+        let radius = match point.status {
+            BaselineStatus::High | BaselineStatus::Low => 5.5,
+            BaselineStatus::Within => 4.0,
+            BaselineStatus::Insufficient => 3.5,
+        };
+        svg.push_str(&format!(
+            r#"<circle class="baseline-point-hit" cx="{xx:.1}" cy="{yy:.1}" r="12" fill="transparent" tabindex="0" role="img" aria-label="{safe}" data-tooltip="{safe}"></circle><circle class="baseline-point {}" cx="{xx:.1}" cy="{yy:.1}" r="{radius}" aria-hidden="true"></circle>"#,
+            point.status.as_str()
+        ));
+    }
+    svg.push_str("</g></svg>");
+    svg.push_str(
+        r#"<div class="baseline-legend" aria-label="Baseline chart legend"><span><i class="legend-swatch-band"></i>IQR band</span><span><i class="legend-line-median"></i>Median</span><span><i class="legend-dot within"></i>Within</span><span><i class="legend-dot high"></i>Above</span><span><i class="legend-dot low"></i>Below</span></div>"#,
+    );
+    let insight = baseline_insight(points);
+    if !insight.is_empty() {
+        svg.push_str(&format!(r#"<p class="insight">{insight}</p>"#));
+    }
+    svg.push_str(&baseline_table(points));
+    svg.push_str("</div>");
+    svg
+}
+
+pub fn format_count(value: f64) -> String {
+    let formatted = format!("{value:.1}");
+    let (integer, fraction) = formatted.split_once('.').unwrap_or((&formatted, "0"));
+    let negative = integer.starts_with('-');
+    let integer_value = integer.trim_start_matches('-').parse::<i64>().unwrap_or(0);
+    let grouped = format_number_full(integer_value as f64);
+    let grouped = if negative {
+        format!("-{grouped}")
+    } else {
+        grouped
+    };
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        grouped
+    } else {
+        format!("{grouped}.{fraction}")
+    }
+}
+
+pub fn signed_count(value: f64) -> String {
+    if value > 0.0 {
+        format!("+{}", format_count(value))
+    } else {
+        format_count(value)
+    }
+}
+
+fn signed_full(value: f64) -> String {
+    signed_count(value)
+}
+
+pub fn smart_mix_insight(months: &[SmartMixMonth]) -> String {
+    let usable: Vec<&SmartMixMonth> = months.iter().filter(|month| month.has_mix()).collect();
+    if usable.len() < 2 {
+        return "Not enough complete months in the selected range to compare Smart Card subtypes."
+            .to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    let share =
+        |month: &SmartMixMonth, index: usize| month.subtypes[index] / month.subtype_total * 100.0;
+    format!(
+        "Stored Value {:.1}% → {:.1}%; One Day Pass {:.1}% → {:.1}% of Smart Card subtypes.",
+        share(first, 0),
+        share(last, 0),
+        share(first, 1),
+        share(last, 1)
+    )
+}
+
+pub fn smart_mix_chart_markup(months: &[SmartMixMonth]) -> String {
+    let mut html = String::from(r#"<div class="smart-ssr-wrap"><div class="smart-ssr-months">"#);
+    for month in months {
+        html.push_str(&format!(
+            r#"<div class="smart-ssr-month"><span class="smart-ssr-label">{}</span>"#,
+            month.month.format("%b ’%y")
+        ));
+        if month.has_mix() {
+            html.push_str(r#"<span class="smart-ssr-bar">"#);
+            for (index, (key, label)) in crate::data::SMART_SUBTYPE_CATEGORIES.iter().enumerate() {
+                let share = month.subtypes[index] / month.subtype_total * 100.0;
+                html.push_str(&format!(
+                    r#"<i class="smart-segment smart-{key}" style="width:{share:.3}%" title="{}: {:.1}%"></i>"#,
+                    label, share
+                ));
+            }
+            html.push_str(r#"</span>"#);
+        } else if month.complete_days == 0 {
+            html.push_str(r#"<span class="smart-ssr-gap">No complete subtype days</span>"#);
+        } else {
+            html.push_str(
+                r#"<span class="smart-ssr-gap">Shares unavailable: subtype total is zero</span>"#,
+            );
+        }
+        html.push_str(&format!(
+            r#"<span class="smart-ssr-meta">{}/{}d · Smart {}</span></div>"#,
+            month.complete_days,
+            month.published_days,
+            if month.parent_smart_days == 0 {
+                "—".into()
+            } else if month.parent_smart_days < month.complete_days {
+                format!("{} partial", format_number_full(month.parent_smart_total))
+            } else {
+                format_number_full(month.parent_smart_total)
+            }
+        ));
+    }
+    html.push_str(r#"</div><div class="mix-legend"><span><i class="mix-key smart-stored-value"></i>Stored Value</span><span><i class="mix-key smart-one-day-pass"></i>One Day Pass</span><span><i class="mix-key smart-three-day-pass"></i>Three Day Pass</span><span><i class="mix-key smart-five-day-pass"></i>Five Day Pass</span></div>"#);
+    html.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        smart_mix_insight(months)
+    ));
+    html.push_str(&smart_mix_table(months));
+    html.push_str("</div>");
+    html
+}
+
+pub(crate) fn smart_mix_table(months: &[SmartMixMonth]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View Smart Card subtype data table</summary><div class="table-scroll"><table><caption>Monthly Smart Card subtype counts and shares</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Parent Smart Cards</th><th scope="col">Stored Value</th><th scope="col">One Day Pass</th><th scope="col">Three Day Pass</th><th scope="col">Five Day Pass</th></tr></thead><tbody>"#,
+    );
+    for month in months {
+        let share = |index: usize| {
+            if month.has_mix() {
+                format!(
+                    "{:.1}%",
+                    month.subtypes[index] / month.subtype_total * 100.0
+                )
+            } else {
+                "—".into()
+            }
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            month.month.format("%b %Y"), month.complete_days, month.published_days,
+            if month.parent_smart_days == 0 { "—".into() } else if month.parent_smart_days < month.complete_days { format!("{} partial", format_number_full(month.parent_smart_total)) } else { format_number_full(month.parent_smart_total) },
+            share(0), share(1), share(2), share(3)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+fn matrix_ratio_class(cell: &crate::data::MonthWeekdayCell) -> &'static str {
+    if cell.n == 0 {
+        "empty"
+    } else if cell.ratio.is_none() {
+        "unavailable"
+    } else if cell.ratio.unwrap_or(1.0) >= 1.05 {
+        "high"
+    } else if cell.ratio.unwrap_or(1.0) <= 0.95 {
+        "low"
+    } else {
+        "neutral"
+    }
+}
+
+fn matrix_cell_tooltip(cell: &crate::data::MonthWeekdayCell) -> String {
+    if cell.n == 0 {
+        format!(
+            "{} {}: no published totals in the selected range.",
+            cell.month.format("%b %Y"),
+            weekday_name(cell.weekday)
+        )
+    } else if let Some(ratio) = cell.ratio {
+        format!(
+            "{} {}: median {}, {:.1}% of the overall {} median, n {}.",
+            cell.month.format("%b %Y"),
+            weekday_name(cell.weekday),
+            cell.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            ratio * 100.0,
+            weekday_name(cell.weekday),
+            cell.n
+        )
+    } else {
+        format!(
+            "{} {}: median {}, ratio unavailable because the overall {} baseline is unavailable or zero, n {}.",
+            cell.month.format("%b %Y"),
+            weekday_name(cell.weekday),
+            cell.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            weekday_name(cell.weekday),
+            cell.n
+        )
+    }
+}
+
+pub fn variability_insight(rows: &[CategoryVariability]) -> String {
+    let usable: Vec<&CategoryVariability> = rows
+        .iter()
+        .filter(|row| row.n >= 2 && row.relative_iqr.is_some())
+        .collect();
+    if usable.is_empty() {
+        return "Not enough observations in the selected range to rank variability.".to_string();
+    }
+    let first = usable[0];
+    format!(
+        "{} varies most relative to its median (IQR {}, {:.1}% of median, n {}).",
+        first.label,
+        first
+            .iqr
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        first.relative_iqr.unwrap_or(0.0) * 100.0,
+        first.n
+    )
+}
+
+pub fn variability_markup(rows: &[CategoryVariability]) -> String {
+    let max_iqr = rows
+        .iter()
+        .filter_map(|row| row.iqr)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let mut html = format!(
+        r#"<div class="variability-ssr-wrap html-chart"><p class="insight">{}</p><div class="ranking-list">"#,
+        variability_insight(rows)
+    );
+    for row in rows {
+        let width = row.iqr.unwrap_or(0.0) / max_iqr * 100.0;
+        let tooltip = escape_attr(&format!(
+            "{}: IQR {}, {} of median {}, n {}.",
+            row.label,
+            row.iqr
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.relative_iqr
+                .map(|value| format!("{:.1}%", value * 100.0))
+                .unwrap_or_else(|| "—".into()),
+            row.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.n
+        ));
+        html.push_str(&format!(
+            r#"<div class="ranking-row html-anim" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"><span class="ranking-label">{}</span><span class="ranking-track"><i class="ranking-bar mix-{key}" style="width:{width:.1}%"></i></span><span class="ranking-value">{} · {} · n {}</span></div>"#,
+            row.label,
+            row.iqr.map(compact_number).unwrap_or_else(|| "—".into()),
+            row.relative_iqr.map(|value| format!("{:.1}%", value * 100.0)).unwrap_or_else(|| "—".into()),
+            row.n,
+            key = row.key
+        ));
+    }
+    html.push_str(r#"</div><details class="accessible-data"><summary>View variability ranking data table</summary><div class="table-scroll"><table><caption>Fare-media variability ranking</caption><thead><tr><th>Category</th><th>n</th><th>Median</th><th>IQR</th><th>IQR / median</th></tr></thead><tbody>"#);
+    for row in rows {
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            row.label,
+            row.n,
+            row.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.iqr
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.relative_iqr
+                .map(|value| format!("{:.1}%", value * 100.0))
+                .unwrap_or_else(|| "—".into())
+        ));
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
+}
+
+pub fn reporting_pulse_insight(months: &[ReportingPulseMonth]) -> String {
+    let usable: Vec<&ReportingPulseMonth> = months
+        .iter()
+        .filter(|month| month.calendar_days > 0)
+        .collect();
+    if usable.is_empty() {
+        return "No calendar months are available in the selected range.".to_string();
+    }
+    let lowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| a.coverage.total_cmp(&b.coverage))
+        .expect("nonempty");
+    let total_observed: usize = usable.iter().map(|month| month.observed_days).sum();
+    let total_days: usize = usable.iter().map(|month| month.calendar_days).sum();
+    format!(
+        "{} of {} calendar days have published rows ({:.1}%). Sparsest month: {} at {:.1}% coverage.",
+        total_observed,
+        total_days,
+        total_observed as f64 / total_days.max(1) as f64 * 100.0,
+        lowest.month.format("%b %Y"),
+        lowest.coverage * 100.0
+    )
+}
+
+pub fn reporting_pulse_markup(months: &[ReportingPulseMonth]) -> String {
+    let mut html = format!(
+        r#"<div class="pulse-ssr-wrap html-chart"><p class="insight">{}</p><div class="pulse-list">"#,
+        reporting_pulse_insight(months)
+    );
+    for month in months {
+        let observed_width = month.coverage * 100.0;
+        let tooltip = escape_attr(&format!(
+            "{}: {} observed of {} calendar days ({:.1}%), {} missing; longest unpublished run {} days.",
+            month.month.format("%b %Y"),
+            month.observed_days,
+            month.calendar_days,
+            month.coverage * 100.0,
+            month.missing_days,
+            month.longest_missing_run
+        ));
+        html.push_str(&format!(
+            r#"<div class="pulse-row html-anim" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"><span class="pulse-label">{}</span><span class="pulse-track"><i class="pulse-observed" style="width:{observed_width:.1}%"></i><i class="pulse-missing" style="left:{observed_width:.1}%;width:{:.1}%"></i></span><span class="pulse-value">{}/{}d · gap {}</span></div>"#,
+            month.month.format("%b ’%y"),
+            100.0 - observed_width,
+            month.observed_days,
+            month.calendar_days,
+            month.longest_missing_run
+        ));
+    }
+    html.push_str(r#"</div><div class="pulse-legend"><span><i class="pulse-key observed"></i>Published</span><span><i class="pulse-key missing"></i>No published row</span></div><details class="accessible-data"><summary>View reporting completeness data table</summary><div class="table-scroll"><table><caption>Monthly reporting completeness</caption><thead><tr><th>Month</th><th>Observed</th><th>Calendar days</th><th>Coverage</th><th>Longest missing run</th></tr></thead><tbody>"#);
+    for month in months {
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{:.1}%</td><td>{}</td></tr>",
+            month.month.format("%b %Y"),
+            month.observed_days,
+            month.calendar_days,
+            month.coverage * 100.0,
+            month.longest_missing_run
+        ));
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
+}
+
+pub fn monthly_estimates_insight(months: &[MonthlyEstimate]) -> String {
+    let usable: Vec<&MonthlyEstimate> = months
+        .iter()
+        .filter(|month| month.estimated_missing_total.is_some())
+        .collect();
+    if usable.is_empty() {
+        return "No estimable incomplete months in the selected range.".to_string();
+    }
+    let most_dependent = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| {
+            let share = |month: &MonthlyEstimate| {
+                month.estimated_missing_total.unwrap_or(0.0)
+                    / (month.observed_total.unwrap_or(0.0)
+                        + month.estimated_missing_total.unwrap_or(0.0))
+                    .max(1.0)
+            };
+            share(a).total_cmp(&share(b))
+        })
+        .expect("nonempty");
+    let estimate = most_dependent.estimated_missing_total.unwrap_or(0.0);
+    format!(
+        "{} depends most on estimation: {} estimated journeys across {} missing days, {:.0}% coverage.",
+        most_dependent.month.format("%b %Y"),
+        format_number_full(estimate),
+        most_dependent.missing_days,
+        most_dependent.coverage * 100.0
+    )
+}
+
+pub fn monthly_estimates_markup(months: &[MonthlyEstimate]) -> String {
+    let max_total = months
+        .iter()
+        .map(|month| month.high_total.or(month.observed_total).unwrap_or(0.0))
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let mut html = format!(
+        r#"<div class="estimate-ssr-wrap html-chart"><p class="insight">{}</p><div class="estimate-list">"#,
+        monthly_estimates_insight(months)
+    );
+    for month in months {
+        let observed_width = month.observed_total.unwrap_or(0.0) / max_total * 100.0;
+        let estimated_width = month.estimated_missing_total.unwrap_or(0.0) / max_total * 100.0;
+        let central = month
+            .estimated_missing_total
+            .zip(month.observed_total)
+            .map(|(estimate, observed)| observed + estimate);
+        let tooltip = escape_attr(&format!(
+            "{}: observed {} across {} days; estimated missing {} across {} days. Central estimate {}, sensitivity {}–{}. Coverage {:.0}%. Estimates are not official totals or confidence intervals.",
+            month.month.format("%b %Y"),
+            month
+                .observed_total
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month.observed_days,
+            month
+                .estimated_missing_total
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month.missing_days,
+            central
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month
+                .low_total
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month
+                .high_total
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month.coverage * 100.0
+        ));
+        let tooltip = if month.published_without_total_days > 0 {
+            tooltip.replacen(
+                ". Estimates are not official",
+                &format!(
+                    "; {} published rows lack usable totals. Estimates are not official",
+                    month.published_without_total_days
+                ),
+                1,
+            )
+        } else {
+            tooltip
+        };
+        html.push_str(&format!(
+            r#"<div class="estimate-row html-anim" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"><span class="estimate-label">{}</span><span class="estimate-track"><i class="estimate-observed" style="width:{observed_width:.1}%"></i><i class="estimate-missing" style="left:{observed_width:.1}%;width:{estimated_width:.1}%"></i></span><span class="estimate-value">{} + {} · {:.0}%</span></div>"#,
+            month.month.format("%b ’%y"),
+            month.observed_total.map(compact_number).unwrap_or_else(|| "—".into()),
+            month.estimated_missing_total.map(compact_number).unwrap_or_else(|| "—".into()),
+            month.coverage * 100.0
+        ));
+    }
+    html.push_str(r#"</div><div class="estimate-legend"><span><i class="estimate-key observed"></i>Observed sum</span><span><i class="estimate-key missing"></i>Estimated missing days</span></div><details class="accessible-data"><summary>View monthly estimate data table</summary><div class="table-scroll"><table><caption>Observed and estimated monthly totals</caption><thead><tr><th>Month</th><th>Observed total</th><th>Published without total</th><th>Estimated missing</th><th>Central estimate</th><th>Sensitivity range</th><th>Coverage</th></tr></thead><tbody>"#);
+    for month in months {
+        let central = month
+            .estimated_missing_total
+            .zip(month.observed_total)
+            .map(|(estimate, observed)| observed + estimate);
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}–{}</td><td>{:.0}%</td></tr>",
+            month.month.format("%b %Y"),
+            month.observed_total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            month.published_without_total_days,
+            month.estimated_missing_total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            central.map(format_number_full).unwrap_or_else(|| "—".into()),
+            month.low_total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            month.high_total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            month.coverage * 100.0
+        ));
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
+}
+
+pub fn field_completeness_insight(months: &[FieldCompletenessMonth]) -> String {
+    let mut sums: std::collections::HashMap<&str, (usize, usize)> =
+        std::collections::HashMap::new();
+    for month in months {
+        for cell in &month.cells {
+            let entry = sums.entry(cell.label).or_insert((0, 0));
+            entry.0 += cell.present_days;
+            entry.1 += cell.published_days;
+        }
+    }
+    if let Some((label, (present, total))) = sums
+        .iter()
+        .filter(|(_, (_, total))| *total > 0)
+        .min_by(|a, b| (a.1.0 as f64 / a.1.1 as f64).total_cmp(&(b.1.0 as f64 / b.1.1 as f64)))
+    {
+        format!(
+            "{} has the lowest nonblank coverage among published rows: {} of {} rows ({:.1}%).",
+            label,
+            present,
+            total,
+            *present as f64 / *total as f64 * 100.0
+        )
+    } else {
+        "No published rows are available in the selected range.".to_string()
+    }
+}
+
+pub fn field_completeness_markup(months: &[FieldCompletenessMonth]) -> String {
+    let labels = months
+        .first()
+        .map(|month| {
+            month
+                .cells
+                .iter()
+                .map(|cell| cell.label)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut html = format!(
+        r#"<div class="fields-ssr-wrap html-chart"><p class="insight">{}</p><div class="fields-scroll"><div class="fields-grid" role="grid" aria-label="Month by field completeness grid"><span class="fields-corner"></span><span class="fields-heading">Total</span>"#,
+        field_completeness_insight(months)
+    );
+    for label in &labels {
+        html.push_str(&format!(r#"<span class="fields-heading">{label}</span>"#));
+    }
+    for month in months {
+        html.push_str(&format!(
+            r#"<span class="fields-row-label">{}</span>"#,
+            month.month.format("%b ’%y")
+        ));
+        let total_share = if month.published_days > 0 {
+            Some(month.total_derivable_days as f64 / month.published_days as f64)
+        } else {
+            None
+        };
+        let total_tooltip = escape_attr(&if month.published_days == 0 {
+            format!(
+                "{} Total derivable: no rows were published, so coverage is unavailable.",
+                month.month.format("%b %Y")
+            )
+        } else {
+            format!(
+                "{} Total derivable: {} of {} published rows ({:.1}%).",
+                month.month.format("%b %Y"),
+                month.total_derivable_days,
+                month.published_days,
+                total_share.unwrap_or(0.0) * 100.0
+            )
+        });
+        html.push_str(&format!(
+            r#"<span class="fields-cell fields-total" style="--complete:{:.3}" tabindex="0" role="gridcell" aria-label="{total_tooltip}" data-tooltip="{total_tooltip}"><b>{}</b><small>{}/{}</small></span>"#,
+            total_share.unwrap_or(0.0),
+            total_share.map(|value| format!("{:.0}%", value * 100.0)).unwrap_or_else(|| "—".into()),
+            month.total_derivable_days,
+            month.published_days
+        ));
+        for cell in &month.cells {
+            let tooltip = escape_attr(&if cell.published_days == 0 {
+                format!(
+                    "{} {}: no rows were published, so field coverage is unavailable.",
+                    month.month.format("%b %Y"),
+                    cell.label
+                )
+            } else {
+                format!(
+                    "{} {}: nonblank in {} of {} published rows ({:.1}%).",
+                    month.month.format("%b %Y"),
+                    cell.label,
+                    cell.present_days,
+                    cell.published_days,
+                    cell.share.unwrap_or(0.0) * 100.0
+                )
+            });
+            html.push_str(&format!(
+                r#"<span class="fields-cell" style="--complete:{:.3}" tabindex="0" role="gridcell" aria-label="{tooltip}" data-tooltip="{tooltip}"><b>{}</b><small>{}/{}</small></span>"#,
+                cell.share.unwrap_or(0.0),
+                cell.share.map(|value| format!("{:.0}%", value * 100.0)).unwrap_or_else(|| "—".into()),
+                cell.present_days,
+                cell.published_days
+            ));
+        }
+    }
+    html.push_str(r#"</div></div><details class="accessible-data"><summary>View field completeness data table</summary><div class="table-scroll"><table><caption>Monthly field completeness over published rows</caption><thead><tr><th>Month</th><th>Field</th><th>Nonblank</th><th>Published rows</th><th>Coverage</th></tr></thead><tbody>"#);
+    for month in months {
+        let total_share = (month.published_days > 0)
+            .then(|| month.total_derivable_days as f64 / month.published_days as f64);
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>Total derivable</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            month.month.format("%b %Y"),
+            month.total_derivable_days,
+            month.published_days,
+            total_share
+                .map(|value| format!("{:.1}%", value * 100.0))
+                .unwrap_or_else(|| "—".into())
+        ));
+        for cell in &month.cells {
+            html.push_str(&format!(
+                "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                month.month.format("%b %Y"),
+                cell.label,
+                cell.present_days,
+                cell.published_days,
+                cell.share
+                    .map(|value| format!("{:.1}%", value * 100.0))
+                    .unwrap_or_else(|| "—".into())
+            ));
+        }
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
+}
+
+pub fn month_weekday_matrix_insight(matrix: &MonthWeekdayMatrix) -> String {
+    let usable: Vec<&crate::data::MonthWeekdayCell> = matrix
+        .cells
+        .iter()
+        .filter(|cell| cell.n >= 2 && cell.ratio.is_some())
+        .collect();
+    if usable.is_empty() {
+        return "No month-weekday cells with at least two observations in the selected range."
+            .to_string();
+    }
+    let highest = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| a.ratio.unwrap_or(0.0).total_cmp(&b.ratio.unwrap_or(0.0)))
+        .expect("nonempty");
+    let lowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| a.ratio.unwrap_or(0.0).total_cmp(&b.ratio.unwrap_or(0.0)))
+        .expect("nonempty");
+    format!(
+        "Highest ratio: {} {} at {:.1}% of its weekday baseline; lowest: {} {} at {:.1}%. Cells with n<2 are excluded from this comparison.",
+        highest.month.format("%b %Y"),
+        weekday_name(highest.weekday),
+        highest.ratio.unwrap_or(0.0) * 100.0,
+        lowest.month.format("%b %Y"),
+        weekday_name(lowest.weekday),
+        lowest.ratio.unwrap_or(0.0) * 100.0
+    )
+}
+
+pub fn month_weekday_matrix_markup(matrix: &MonthWeekdayMatrix) -> String {
+    let mut html = String::from(
+        r#"<div class="matrix-ssr-wrap"><div class="matrix-scroll"><div class="weekday-matrix" role="grid" aria-label="Month by weekday ratio matrix"><span class="matrix-corner"></span>"#,
+    );
+    for weekday in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+        html.push_str(&format!(r#"<span class="matrix-heading">{weekday}</span>"#));
+    }
+    for month in &matrix.months {
+        html.push_str(&format!(
+            r#"<span class="matrix-row-label">{}</span>"#,
+            month.format("%b ’%y")
+        ));
+        for weekday_index in 0..7 {
+            let cell = matrix
+                .cells
+                .iter()
+                .find(|cell| {
+                    cell.month == *month
+                        && cell.weekday.num_days_from_monday() as usize == weekday_index
+                })
+                .expect("matrix contains every month-weekday cell");
+            let class = matrix_ratio_class(cell);
+            let tooltip = escape_attr(&matrix_cell_tooltip(cell));
+            let heat = cell
+                .ratio
+                .map(|ratio| ((ratio - 1.0).abs() / 0.3).min(1.0))
+                .unwrap_or(0.0);
+            let main = if cell.n == 0 {
+                "—".to_string()
+            } else {
+                cell.ratio
+                    .map(|ratio| format!("{:.0}%", ratio * 100.0))
+                    .unwrap_or_else(|| "—".into())
+            };
+            let median_line = if cell.n > 0 && cell.ratio.is_none() {
+                format!(
+                    "<small>med {}</small>",
+                    cell.median
+                        .map(compact_number)
+                        .unwrap_or_else(|| "—".into())
+                )
+            } else {
+                String::new()
+            };
+            html.push_str(&format!(
+                r#"<span class="matrix-cell matrix-{class}" style="--heat:{heat:.3}" role="gridcell" tabindex="0" aria-label="{tooltip}" data-tooltip="{tooltip}"><b>{main}</b>{median_line}<small>n {}</small></span>"#,
+                cell.n
+            ));
+        }
+    }
+    html.push_str(r#"</div></div><div class="matrix-legend"><span><i class="matrix-key matrix-high"></i>Above baseline</span><span><i class="matrix-key matrix-neutral"></i>Near baseline</span><span><i class="matrix-key matrix-low"></i>Below baseline</span><span><i class="matrix-key matrix-empty"></i>No observations</span><span><i class="matrix-key matrix-unavailable"></i>Ratio unavailable</span></div>"#);
+    html.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        month_weekday_matrix_insight(matrix)
+    ));
+    html.push_str(&month_weekday_matrix_table(matrix));
+    html.push_str("</div>");
+    html
+}
+
+pub(crate) fn month_weekday_matrix_table(matrix: &MonthWeekdayMatrix) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View month-by-weekday matrix data table</summary><div class="table-scroll"><table><caption>Median daily total and ratio to weekday baseline</caption><thead><tr><th scope="col">Month</th><th scope="col">Weekday</th><th scope="col">n</th><th scope="col">Median</th><th scope="col">Ratio</th></tr></thead><tbody>"#,
+    );
+    for cell in &matrix.cells {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            cell.month.format("%b %Y"),
+            weekday_name(cell.weekday),
+            cell.n,
+            cell.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            cell.ratio
+                .map(|ratio| format!("{:.1}%", ratio * 100.0))
+                .unwrap_or_else(|| "—".into())
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub fn weekend_signature_insight(groups: &[WeekendSignature]) -> String {
+    let usable: Vec<&WeekendSignature> = groups
+        .iter()
+        .filter(|group| group.complete_days > 0 && group.median.is_some())
+        .collect();
+    if usable.len() < 2 {
+        return "Not enough complete days in the selected range to compare day-group signatures."
+            .to_string();
+    }
+    let highest = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| a.median.unwrap_or(0.0).total_cmp(&b.median.unwrap_or(0.0)))
+        .expect("nonempty");
+    let lowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| a.median.unwrap_or(0.0).total_cmp(&b.median.unwrap_or(0.0)))
+        .expect("nonempty");
+    let ncmc_share = |group: &WeekendSignature| {
+        if group.component_total > 0.0 {
+            group.components[1] / group.component_total * 100.0
+        } else {
+            0.0
+        }
+    };
+    format!(
+        "{} has the highest median total ({}); {} the lowest ({}). NCMC shares: {} {:.1}%, {} {:.1}%.",
+        highest.label,
+        format_number_full(highest.median.unwrap_or(0.0)),
+        lowest.label,
+        format_number_full(lowest.median.unwrap_or(0.0)),
+        groups[0].label,
+        ncmc_share(&groups[0]),
+        groups[2].label,
+        ncmc_share(&groups[2])
+    )
+}
+
+fn signature_tooltip(group: &WeekendSignature) -> String {
+    if group.complete_days == 0 {
+        return format!(
+            "{}: no complete parent-component days among {} published days.",
+            group.label, group.published_days
+        );
+    }
+    format!(
+        "{}: median {}, interquartile range {}–{}, full range {}–{}; {} complete of {} published days.",
+        group.label,
+        group
+            .median
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .lower_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .upper_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .minimum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .maximum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group.complete_days,
+        group.published_days
+    )
+}
+
+pub fn weekend_signature_chart_markup(groups: &[WeekendSignature]) -> String {
+    const WIDTH: f64 = 1000.0;
+    const HEIGHT: f64 = 440.0;
+    const LEFT: f64 = 48.0;
+    const RIGHT: f64 = 28.0;
+    const TOP: f64 = 72.0;
+    const BOX_H: f64 = 180.0;
+    const SHARE_Y: f64 = 318.0;
+    const SHARE_H: f64 = 30.0;
+    let max_value = groups
+        .iter()
+        .filter_map(|group| group.maximum)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let panel_width = (WIDTH - LEFT - RIGHT) / 3.0;
+    let y = |value: f64| TOP + BOX_H - value / max_value * BOX_H;
+    let mut svg = format!(
+        r#"<div class="signature-ssr-wrap"><svg class="signature-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Weekday, Saturday, and Sunday total distributions with fare-media shares"><g class="grid">"#
+    );
+    for tick in 0..=3 {
+        let value = max_value * tick as f64 / 3.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 8.0,
+            yy + 4.0,
+            compact_number(value)
+        ));
+    }
+    svg.push_str("</g>");
+    for (index, group) in groups.iter().enumerate() {
+        let panel_x = LEFT + panel_width * index as f64;
+        let centre = panel_x + panel_width / 2.0;
+        let label = escape_attr(&signature_tooltip(group));
+        svg.push_str(&format!(
+            r#"<g class="signature-panel" tabindex="0" role="img" aria-label="{label}" data-tooltip="{label}"><text class="signature-title" x="{centre:.1}" y="32" text-anchor="middle">{}</text><text class="signature-n" x="{centre:.1}" y="52" text-anchor="middle">{} complete of {} published</text>"#,
+            group.label, group.complete_days, group.published_days
+        ));
+        if group.complete_days > 0 {
+            let min_y = y(group.minimum.unwrap_or(0.0));
+            let max_y = y(group.maximum.unwrap_or(0.0));
+            let q1_y = y(group.lower_quartile.unwrap_or(0.0));
+            let q3_y = y(group.upper_quartile.unwrap_or(0.0));
+            let med_y = y(group.median.unwrap_or(0.0));
+            svg.push_str(&format!(
+                r#"<line class="dist-whisker" x1="{centre:.1}" x2="{centre:.1}" y1="{max_y:.1}" y2="{min_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{max_y:.1}" y2="{max_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{min_y:.1}" y2="{min_y:.1}"></line><rect class="dist-box" x="{:.1}" y="{q3_y:.1}" width="58" height="{:.1}"></rect><line class="dist-median" x1="{:.1}" x2="{:.1}" y1="{med_y:.1}" y2="{med_y:.1}"></line>"#,
+                centre - 25.0, centre + 25.0, centre - 25.0, centre + 25.0,
+                centre - 29.0, (q1_y - q3_y).max(1.0), centre - 29.0, centre + 29.0
+            ));
+        } else {
+            svg.push_str(&format!(
+                r#"<text class="dist-empty" x="{centre:.1}" y="{:.1}" text-anchor="middle">No complete days</text>"#,
+                TOP + BOX_H / 2.0
+            ));
+        }
+        let bar_x = panel_x + 24.0;
+        let bar_width = panel_width - 48.0;
+        svg.push_str(&format!(
+            r#"<text class="signature-share-label" x="{centre:.1}" y="{:.1}" text-anchor="middle">Aggregate fare-media shares</text>"#,
+            SHARE_Y - 10.0
+        ));
+        if group.component_total > 0.0 {
+            let mut cursor = bar_x;
+            for (component_index, (key, component_label)) in
+                crate::data::WATERFALL_CATEGORIES.iter().enumerate()
+            {
+                let share = group.components[component_index] / group.component_total;
+                let width = share * bar_width;
+                let tooltip = escape_attr(&format!(
+                    "{} · {}: {:.1}% of aggregate complete-day total",
+                    group.label,
+                    component_label,
+                    share * 100.0
+                ));
+                svg.push_str(&format!(
+                    r#"<rect class="signature-share-segment mix-{key}" x="{cursor:.1}" y="{SHARE_Y}" width="{width:.1}" height="{SHARE_H}" data-tooltip="{tooltip}"></rect>"#
+                ));
+                cursor += width;
+            }
+        } else {
+            svg.push_str(&format!(
+                r#"<rect class="mix-gap" x="{bar_x:.1}" y="{SHARE_Y}" width="{bar_width:.1}" height="{SHARE_H}"></rect>"#
+            ));
+        }
+        svg.push_str("</g>");
+    }
+    let mut legend = String::from(r#"<g class="signature-legend" transform="translate(250,398)">"#);
+    let mut dx = 0.0;
+    for (key, label) in crate::data::WATERFALL_CATEGORIES {
+        legend.push_str(&format!(
+            r#"<g transform="translate({dx:.1},0)"><rect class="mix-key mix-{key}" x="0" y="-10" width="10" height="10" rx="2"></rect><text x="16" y="0">{label}</text></g>"#
+        ));
+        dx += match key {
+            "smart-card" => 108.0,
+            "ncmc" => 72.0,
+            "token" => 78.0,
+            "qr" => 54.0,
+            _ => 112.0,
+        };
+    }
+    legend.push_str("</g>");
+    svg.push_str(&legend);
+    svg.push_str("</svg>");
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        weekend_signature_insight(groups)
+    ));
+    svg.push_str(&weekend_signature_table(groups));
+    svg.push_str("</div>");
+    svg
+}
+
+pub(crate) fn weekend_signature_table(groups: &[WeekendSignature]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View weekend signature data table</summary><div class="table-scroll"><table><caption>Total distributions and aggregate fare-media shares by day group</caption><thead><tr><th scope="col">Day group</th><th scope="col">Complete/published</th><th scope="col">Median</th><th scope="col">IQR</th><th scope="col">Range</th><th scope="col">Smart Cards</th><th scope="col">NCMC</th><th scope="col">Tokens</th><th scope="col">QR</th><th scope="col">Group Ticket</th></tr></thead><tbody>"#,
+    );
+    for group in groups {
+        let value =
+            |value: Option<f64>| value.map(format_number_full).unwrap_or_else(|| "—".into());
+        let share = |index: usize| {
+            if group.component_total > 0.0 {
+                format!(
+                    "{:.1}%",
+                    group.components[index] / group.component_total * 100.0
+                )
+            } else {
+                "—".into()
+            }
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}–{}</td><td>{}–{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            group.label,
+            group.complete_days,
+            group.published_days,
+            value(group.median),
+            value(group.lower_quartile),
+            value(group.upper_quartile),
+            value(group.minimum),
+            value(group.maximum),
+            share(0), share(1), share(2), share(3), share(4)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub fn weekday_distribution_insight(days: &[WeekdayDistribution]) -> String {
+    let usable: Vec<&WeekdayDistribution> = days
+        .iter()
+        .filter(|day| day.n >= 2 && day.lower_quartile.is_some() && day.upper_quartile.is_some())
+        .collect();
+    if usable.is_empty() {
+        return "Not enough observations in the selected range to compare weekday distributions."
+            .to_string();
+    }
+    let width = |day: &WeekdayDistribution| {
+        day.upper_quartile.unwrap_or(0.0) - day.lower_quartile.unwrap_or(0.0)
+    };
+    let widest = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| width(a).total_cmp(&width(b)))
+        .expect("nonempty");
+    let narrowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| width(a).total_cmp(&width(b)))
+        .expect("nonempty");
+    format!(
+        "{} has the widest interquartile range ({}–{}); {} is the tightest ({}–{}).",
+        weekday_name(widest.weekday),
+        format_number_full(widest.lower_quartile.unwrap_or(0.0)),
+        format_number_full(widest.upper_quartile.unwrap_or(0.0)),
+        weekday_name(narrowest.weekday),
+        format_number_full(narrowest.lower_quartile.unwrap_or(0.0)),
+        format_number_full(narrowest.upper_quartile.unwrap_or(0.0))
+    )
+}
+
+fn distribution_day_label(day: &WeekdayDistribution) -> String {
+    if day.n == 0 {
+        return format!(
+            "{}: no published totals in the selected range.",
+            weekday_name(day.weekday)
+        );
+    }
+    format!(
+        "{}: median {}, interquartile range {}–{}, full range {}–{}, n {}.",
+        weekday_name(day.weekday),
+        day.median
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.lower_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.upper_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.minimum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.maximum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        day.n
+    )
+}
+
+pub fn weekday_distribution_chart_markup(days: &[WeekdayDistribution]) -> String {
+    const WIDTH: f64 = 900.0;
+    const HEIGHT: f64 = 380.0;
+    const LEFT: f64 = 66.0;
+    const RIGHT: f64 = 24.0;
+    const TOP: f64 = 28.0;
+    const BOTTOM: f64 = 64.0;
+    let max_value = days
+        .iter()
+        .filter_map(|day| day.maximum)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let plot_height = HEIGHT - TOP - BOTTOM;
+    let x = |index: usize| LEFT + plot_width * (index as f64 + 0.5) / 7.0;
+    let y = |value: f64| TOP + plot_height - value / max_value * plot_height;
+    let mut svg = format!(
+        r#"<div class="dist-ssr-wrap"><svg class="dist-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Weekday distributions of observed daily totals"><g class="grid">"#
+    );
+    for tick in 0..=4 {
+        let value = max_value * tick as f64 / 4.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT, LEFT - 10.0, yy + 4.0, compact_number(value)
+        ));
+    }
+    for (index, day) in days.iter().enumerate() {
+        let xx = x(index);
+        svg.push_str(&format!(
+            r#"<text class="x-label" x="{xx:.1}" y="{}" text-anchor="middle">{}</text>"#,
+            HEIGHT - 25.0,
+            weekday_name(day.weekday).get(..3).unwrap_or("")
+        ));
+        if day.n == 0 {
+            svg.push_str(&format!(
+                r#"<text class="dist-empty" x="{xx:.1}" y="{:.1}" text-anchor="middle">n 0</text>"#,
+                TOP + plot_height / 2.0
+            ));
+            continue;
+        }
+        let label = escape_attr(&distribution_day_label(day));
+        let min_y = y(day.minimum.unwrap_or(0.0));
+        let max_y = y(day.maximum.unwrap_or(0.0));
+        let q1_y = y(day.lower_quartile.unwrap_or(0.0));
+        let q3_y = y(day.upper_quartile.unwrap_or(0.0));
+        let med_y = y(day.median.unwrap_or(0.0));
+        svg.push_str(&format!(
+            r#"<g class="dist-day" tabindex="0" role="img" aria-label="{label}" data-tooltip="{label}"><line class="dist-whisker" x1="{xx:.1}" x2="{xx:.1}" y1="{max_y:.1}" y2="{min_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{max_y:.1}" y2="{max_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{min_y:.1}" y2="{min_y:.1}"></line><rect class="dist-box" x="{:.1}" y="{q3_y:.1}" width="42" height="{:.1}"></rect><line class="dist-median" x1="{:.1}" x2="{:.1}" y1="{med_y:.1}" y2="{med_y:.1}"></line><text class="dist-n" x="{xx:.1}" y="{}" text-anchor="middle">n {}</text></g>"#,
+            xx - 18.0, xx + 18.0, xx - 18.0, xx + 18.0,
+            xx - 21.0, (q1_y - q3_y).max(1.0), xx - 21.0, xx + 21.0,
+            HEIGHT - 8.0, day.n
+        ));
+    }
+    svg.push_str("</g></svg>");
+    svg.push_str(r#"<div class="dist-legend" aria-label="Distribution legend"><span><i class="dist-key-box"></i>Interquartile range</span><span><i class="dist-key-median"></i>Median</span><span><i class="dist-key-whisker"></i>Observed range</span></div>"#);
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        weekday_distribution_insight(days)
+    ));
+    svg.push_str(&weekday_distribution_table(days));
+    svg.push_str("</div>");
+    svg
+}
+
+pub(crate) fn weekday_distribution_table(days: &[WeekdayDistribution]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View weekday distribution data table</summary><div class="table-scroll"><table><caption>Observed total-ridership distributions by weekday</caption><thead><tr><th scope="col">Weekday</th><th scope="col">n</th><th scope="col">Minimum</th><th scope="col">Q1</th><th scope="col">Median</th><th scope="col">Q3</th><th scope="col">Maximum</th></tr></thead><tbody>"#,
+    );
+    for day in days {
+        let value =
+            |value: Option<f64>| value.map(format_number_full).unwrap_or_else(|| "—".into());
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            weekday_name(day.weekday), day.n, value(day.minimum), value(day.lower_quartile), value(day.median), value(day.upper_quartile), value(day.maximum)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub fn qr_mix_insight(months: &[QrMixMonth]) -> String {
+    let usable: Vec<&QrMixMonth> = months.iter().filter(|month| month.has_mix()).collect();
+    if usable.len() < 2 {
+        return "Not enough complete months in the selected range to compare QR channels."
+            .to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    let share =
+        |month: &QrMixMonth, index: usize| month.providers[index] / month.provider_total * 100.0;
+    format!(
+        "Namma Metro {:.1}% → {:.1}%; ONDC {:.1}% → {:.1}% of provider-sum QR.",
+        share(first, 0),
+        share(last, 0),
+        share(first, 3),
+        share(last, 3)
+    )
+}
+
+pub fn qr_mix_chart_markup(months: &[QrMixMonth]) -> String {
+    let mut html = String::from(r#"<div class="qr-ssr-wrap"><div class="qr-ssr-months">"#);
+    for month in months {
+        html.push_str(&format!(
+            r#"<div class="qr-ssr-month"><span class="qr-ssr-label">{}</span>"#,
+            month.month.format("%b ’%y")
+        ));
+        if month.has_mix() {
+            html.push_str(r#"<span class="qr-ssr-bar">"#);
+            for (index, (key, label)) in crate::data::QR_PROVIDER_CATEGORIES.iter().enumerate() {
+                let share = month.providers[index] / month.provider_total * 100.0;
+                html.push_str(&format!(
+                    r#"<i class="qr-segment qr-{key}" style="width:{share:.3}%" title="{}: {:.1}%"></i>"#,
+                    label, share
+                ));
+            }
+            html.push_str(r#"</span>"#);
+        } else if month.complete_days == 0 {
+            html.push_str(r#"<span class="qr-ssr-gap">No complete provider days</span>"#);
+        } else {
+            html.push_str(
+                r#"<span class="qr-ssr-gap">Shares unavailable: provider total is zero</span>"#,
+            );
+        }
+        html.push_str(&format!(
+            r#"<span class="qr-ssr-meta">{}/{}d · QR {}</span></div>"#,
+            month.complete_days,
+            month.published_days,
+            if month.parent_qr_days == 0 {
+                "—".into()
+            } else if month.parent_qr_days < month.complete_days {
+                format!("{} partial", format_number_full(month.parent_qr_total))
+            } else {
+                format_number_full(month.parent_qr_total)
+            }
+        ));
+    }
+    html.push_str(r#"</div><div class="mix-legend"><span><i class="mix-key qr-qr-namma"></i>Namma Metro</span><span><i class="mix-key qr-qr-whatsapp"></i>WhatsApp</span><span><i class="mix-key qr-qr-paytm"></i>Paytm</span><span><i class="mix-key qr-qr-ondc"></i>ONDC</span></div>"#);
+    html.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        qr_mix_insight(months)
+    ));
+    html.push_str(&qr_mix_table(months));
+    html.push_str("</div>");
+    html
+}
+
+pub(crate) fn qr_mix_table(months: &[QrMixMonth]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View QR channel data table</summary><div class="table-scroll"><table><caption>Monthly QR provider counts and shares</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Parent QR</th><th scope="col">Namma Metro</th><th scope="col">WhatsApp</th><th scope="col">Paytm</th><th scope="col">ONDC</th></tr></thead><tbody>"#,
+    );
+    for month in months {
+        let share = |index: usize| {
+            if month.has_mix() {
+                format!(
+                    "{:.1}%",
+                    month.providers[index] / month.provider_total * 100.0
+                )
+            } else {
+                "—".into()
+            }
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            month.month.format("%b %Y"), month.complete_days, month.published_days,
+            if month.parent_qr_days == 0 { "—".into() } else if month.parent_qr_days < month.complete_days { format!("{} partial", format_number_full(month.parent_qr_total)) } else { format_number_full(month.parent_qr_total) },
+            share(0), share(1), share(2), share(3)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub fn ncmc_share_insight(weeks: &[NcmcShareWeek]) -> String {
+    let usable: Vec<&NcmcShareWeek> = weeks.iter().filter(|week| week.share().is_some()).collect();
+    if usable.len() < 2 {
+        return "Not enough complete weeks in the selected range to compare NCMC share."
+            .to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    format!(
+        "NCMC share of Smart Card + NCMC: {:.1}% → {:.1}% across complete observed days.",
+        first.share().unwrap_or(0.0) * 100.0,
+        last.share().unwrap_or(0.0) * 100.0
+    )
+}
+
+pub fn ncmc_share_chart_markup(weeks: &[NcmcShareWeek]) -> String {
+    if weeks.is_empty() {
+        return r#"<div class="ncmc-wrap"><p class="ncmc-empty">No weeks are available in the selected range.</p></div>"#.to_string();
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 400.0;
+    const LEFT: f64 = 48.0;
+    const RIGHT: f64 = 22.0;
+    const TOP: f64 = 42.0;
+    const SHARE_H: f64 = 178.0;
+    const GAP: f64 = 34.0;
+    const TOTAL_H: f64 = 58.0;
+    const LABEL_Y: f64 = 366.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let step = plot_width / weeks.len().max(1) as f64;
+    let bar_width = (step * 0.52).clamp(10.0, 42.0);
+    let max_ncmc = weeks
+        .iter()
+        .map(|week| week.ncmc)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let total_base = TOP + SHARE_H + GAP + TOTAL_H;
+    let x = |index: usize| LEFT + step * (index as f64 + 0.5);
+    let share_y = |share: f64| TOP + SHARE_H - share * SHARE_H;
+    let mut svg = format!(
+        r#"<div class="ncmc-wrap"><svg class="ncmc-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Weekly NCMC share of Smart Cards plus NCMC"><g class="grid">"#
+    );
+    for (value, label) in [(0.0, "0%"), (0.5, "50%"), (1.0, "100%")] {
+        let yy = share_y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{label}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 9.0,
+            yy + 4.0
+        ));
+    }
+    svg.push_str(&format!(
+        r#"<line x1="{LEFT}" x2="{}" y1="{total_base:.1}" y2="{total_base:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text><text x="{}" y="{:.1}" text-anchor="end">0</text>"#,
+        WIDTH - RIGHT,
+        LEFT - 9.0,
+        total_base - TOTAL_H + 4.0,
+        compact_number(max_ncmc),
+        LEFT - 9.0,
+        total_base + 4.0
+    ));
+    svg.push_str("</g>");
+    let points: Vec<(usize, f64, f64)> = weeks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, week)| week.share().map(|share| (index, x(index), share_y(share))))
+        .collect();
+    for window in points.windows(2) {
+        let (left_index, x1, y1) = window[0];
+        let (right_index, x2, y2) = window[1];
+        if right_index == left_index + 1 {
+            svg.push_str(&format!(
+                r#"<line class="ncmc-share-line" x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"></line>"#
+            ));
+        }
+    }
+    for (index, week) in weeks.iter().enumerate() {
+        let xx = x(index);
+        if let Some(share) = week.share() {
+            let yy = share_y(share);
+            let tooltip = escape_attr(&format!(
+                "Week of {}: NCMC {} of Smart Card + NCMC {} ({:.1}%), {} complete of {} published days",
+                week.week.format("%d %b %Y"),
+                format_number_full(week.ncmc),
+                format_number_full(week.commuter_total),
+                share * 100.0,
+                week.complete_days,
+                week.published_days
+            ));
+            svg.push_str(&format!(
+                r#"<circle class="ncmc-share-point" cx="{xx:.1}" cy="{yy:.1}" r="5" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"></circle>"#
+            ));
+            let bar_height = week.ncmc / max_ncmc * TOTAL_H;
+            let bar_y = total_base - bar_height;
+            let total_tooltip = escape_attr(&format!(
+                "Week of {}: NCMC {} across {} complete days",
+                week.week.format("%d %b %Y"),
+                format_number_full(week.ncmc),
+                week.complete_days
+            ));
+            svg.push_str(&format!(
+                r#"<rect class="ncmc-count-bar" x="{:.1}" y="{bar_y:.1}" width="{bar_width}" height="{bar_height:.1}" aria-hidden="true"></rect><rect class="ncmc-count-hit" x="{:.1}" y="{bar_y:.1}" width="{bar_width}" height="{bar_height:.1}" fill="transparent" tabindex="0" role="img" aria-label="{total_tooltip}" data-tooltip="{total_tooltip}"></rect>"#,
+                xx - bar_width / 2.0,
+                xx - bar_width / 2.0
+            ));
+            if step >= 46.0 {
+                svg.push_str(&format!(
+                    r#"<text class="mix-coverage-label" x="{xx:.1}" y="{:.1}" text-anchor="middle">{}/{}d</text>"#,
+                    total_base + 17.0,
+                    week.complete_days,
+                    week.published_days
+                ));
+            }
+        } else {
+            svg.push_str(&format!(
+                r#"<rect class="mix-gap" x="{:.1}" y="{TOP}" width="{bar_width}" height="{SHARE_H}"></rect>"#,
+                xx - bar_width / 2.0
+            ));
+        }
+        let label_every = (weeks.len() / 10).max(1);
+        if index % label_every == 0 || index + 1 == weeks.len() {
+            svg.push_str(&format!(
+                r#"<text class="x-label mix-x-label" x="{xx:.1}" y="{LABEL_Y}" text-anchor="middle">{}</text>"#,
+                week.week.format("%d %b")
+            ));
+        }
+    }
+    svg.push_str("</svg>");
+    svg.push_str(r#"<div class="mix-legend" aria-label="NCMC chart legend"><span><i class="ncmc-line-key"></i>NCMC share</span><span><i class="ncmc-count-key"></i>NCMC count</span></div>"#);
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        ncmc_share_insight(weeks)
+    ));
+    svg.push_str(&ncmc_share_table(weeks));
+    svg.push_str("</div>");
+    svg
+}
+
+pub(crate) fn ncmc_share_table(weeks: &[NcmcShareWeek]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View NCMC share data table</summary><div class="table-scroll"><table><caption>Weekly NCMC count and share of Smart Cards plus NCMC</caption><thead><tr><th scope="col">Week</th><th scope="col">Complete days</th><th scope="col">NCMC</th><th scope="col">Smart + NCMC</th><th scope="col">NCMC share</th></tr></thead><tbody>"#,
+    );
+    for week in weeks {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            week.week.format("%d %b %Y"),
+            week.complete_days,
+            week.published_days,
+            format_number_full(week.ncmc),
+            format_number_full(week.commuter_total),
+            week.share()
+                .map(|share| format!("{:.1}%", share * 100.0))
+                .unwrap_or_else(|| "—".into())
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+fn mix_percent(value: f64) -> String {
+    format!("{value:.0}%")
+}
+
+pub fn fare_mix_insight(months: &[FareMixMonth]) -> String {
+    let usable: Vec<&FareMixMonth> = months
+        .iter()
+        .filter(|month| month.total.is_some_and(|total| total > 0.0))
+        .collect();
+    if usable.len() < 2 {
+        return "Not enough positive-total months in the selected range to compare the mix."
+            .to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    let share = |month: &FareMixMonth, index: usize| {
+        month
+            .total
+            .filter(|total| *total > 0.0)
+            .map(|total| month.components[index] / total * 100.0)
+            .unwrap_or(0.0)
+    };
+    format!(
+        "Smart Cards {:.0}% → {:.0}%; NCMC {:.0}% → {:.0}% across complete observed days.",
+        share(first, 0),
+        share(last, 0),
+        share(first, 1),
+        share(last, 1)
+    )
+}
+
+pub fn fare_mix_chart_markup(months: &[FareMixMonth]) -> String {
+    if months.is_empty() {
+        return r#"<div class="mix-wrap"><p class="mix-empty">No months are available in the selected range.</p></div>"#.to_string();
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 400.0;
+    const LEFT: f64 = 48.0;
+    const RIGHT: f64 = 22.0;
+    const TOP: f64 = 42.0;
+    const SHARE_H: f64 = 178.0;
+    const GAP: f64 = 34.0;
+    const TOTAL_H: f64 = 58.0;
+    const LABEL_Y: f64 = 366.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let step = plot_width / months.len().max(1) as f64;
+    let bar_width = (step * 0.58).clamp(14.0, 52.0);
+    let max_total = months
+        .iter()
+        .filter_map(|month| month.total)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let total_base = TOP + SHARE_H + GAP + TOTAL_H;
+    let mut svg = format!(
+        r#"<div class="mix-wrap"><svg class="mix-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Monthly fare-media share mix with observed totals"><g class="grid">"#
+    );
+    for (value, label) in [(0.0, "0%"), (0.5, "50%"), (1.0, "100%")] {
+        let yy = TOP + SHARE_H - value * SHARE_H;
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{label}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 9.0,
+            yy + 4.0
+        ));
+    }
+    svg.push_str(&format!(
+        r#"<line x1="{LEFT}" x2="{}" y1="{total_base:.1}" y2="{total_base:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text><text x="{}" y="{:.1}" text-anchor="end">0</text>"#,
+        WIDTH - RIGHT,
+        LEFT - 9.0,
+        total_base - TOTAL_H + 4.0,
+        compact_number(max_total),
+        LEFT - 9.0,
+        total_base + 4.0
+    ));
+    svg.push_str("</g>");
+
+    for (index, month) in months.iter().enumerate() {
+        let xx = LEFT + step * (index as f64 + 0.5);
+        if let Some(total) = month.total.filter(|total| *total > 0.0) {
+            let mut cumulative = 0.0;
+            for (component_index, (key, label)) in
+                crate::data::WATERFALL_CATEGORIES.iter().enumerate()
+            {
+                let value = month.components[component_index];
+                let share = value / total;
+                let y = TOP + cumulative * SHARE_H;
+                let height = (share * SHARE_H).max(if value > 0.0 { 1.0 } else { 0.0 });
+                let tooltip = escape_attr(&format!(
+                    "{} · {}: {} ({:.1}%), {} complete of {} published days",
+                    month.month.format("%b %Y"),
+                    label,
+                    format_number_full(value),
+                    share * 100.0,
+                    month.complete_days,
+                    month.published_days
+                ));
+                svg.push_str(&format!(
+                    r#"<rect class="mix-segment mix-{key}" x="{:.1}" y="{y:.1}" width="{bar_width}" height="{height:.1}" aria-hidden="true"></rect><rect class="mix-hit" x="{:.1}" y="{y:.1}" width="{bar_width}" height="{height:.1}" fill="transparent" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"></rect>"#,
+                    xx - bar_width / 2.0,
+                    xx - bar_width / 2.0
+                ));
+                cumulative += share;
+            }
+            let total_height = total / max_total * TOTAL_H;
+            let total_y = total_base - total_height;
+            let total_tooltip = escape_attr(&format!(
+                "{} observed total: {} across {} complete days",
+                month.month.format("%b %Y"),
+                format_number_full(total),
+                month.complete_days
+            ));
+            svg.push_str(&format!(
+                r#"<rect class="mix-total-bar" x="{:.1}" y="{total_y:.1}" width="{bar_width}" height="{total_height:.1}" aria-hidden="true"></rect><rect class="mix-total-hit" x="{:.1}" y="{total_y:.1}" width="{bar_width}" height="{total_height:.1}" fill="transparent" tabindex="0" role="img" aria-label="{total_tooltip}" data-tooltip="{total_tooltip}"></rect><text class="mix-coverage-label" x="{xx:.1}" y="{:.1}" text-anchor="middle">{}/{}d</text>"#,
+                xx - bar_width / 2.0,
+                xx - bar_width / 2.0,
+                total_base + 17.0,
+                month.complete_days,
+                month.published_days
+            ));
+        } else {
+            svg.push_str(&format!(
+                r#"<rect class="mix-gap" x="{:.1}" y="{TOP}" width="{bar_width}" height="{SHARE_H}"></rect>"#,
+                xx - bar_width / 2.0
+            ));
+        }
+        svg.push_str(&format!(
+            r#"<text class="x-label mix-x-label" x="{xx:.1}" y="{LABEL_Y}" text-anchor="middle">{}</text>"#,
+            month.month.format("%b ’%y")
+        ));
+    }
+    svg.push_str("</svg>");
+    svg.push_str(r#"<div class="mix-legend" aria-label="Fare media legend"><span><i class="mix-key mix-smart-card"></i>Smart Cards</span><span><i class="mix-key mix-ncmc"></i>NCMC</span><span><i class="mix-key mix-token"></i>Tokens</span><span><i class="mix-key mix-qr"></i>QR</span><span><i class="mix-key mix-group-ticket"></i>Group</span></div>"#);
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        fare_mix_insight(months)
+    ));
+    svg.push_str(&fare_mix_table(months));
+    svg.push_str("</div>");
+    svg
+}
+
+pub(crate) fn fare_mix_table(months: &[FareMixMonth]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View fare-media mix data table</summary><div class="table-scroll"><table><caption>Monthly observed totals and shares by fare medium</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Observed total</th><th scope="col">Smart Cards</th><th scope="col">NCMC</th><th scope="col">Tokens</th><th scope="col">QR</th><th scope="col">Group</th></tr></thead><tbody>"#,
+    );
+    for month in months {
+        let share = |index: usize| {
+            month
+                .total
+                .filter(|total| *total > 0.0)
+                .map(|total| mix_percent(month.components[index] / total * 100.0))
+                .unwrap_or_else(|| "—".into())
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            month.month.format("%b %Y"),
+            month.complete_days,
+            month.published_days,
+            month.total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            share(0), share(1), share(2), share(3), share(4)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub fn waterfall_insight(waterfall: &ComponentWaterfall) -> String {
+    let Some(total_delta) = waterfall.delta_total else {
+        return String::new();
+    };
+    let mut contributors = waterfall.components.clone();
+    contributors.sort_by(|a, b| b.delta.abs().total_cmp(&a.delta.abs()));
+    let top = contributors
+        .iter()
+        .take(2)
+        .map(|component| format!("{} {}", component.label, signed_full(component.delta)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!(
+        "Total difference {}. Largest component movements: {}.",
+        signed_full(total_delta),
+        top
+    )
+}
+
+pub fn waterfall_chart_markup(waterfall: Option<&ComponentWaterfall>) -> String {
+    let Some(waterfall) = waterfall else {
+        return r#"<div class="waterfall-wrap"><p class="waterfall-empty">The selected day does not have complete fare-media components.</p></div>"#.to_string();
+    };
+    if waterfall.reference_total.is_none() || waterfall.components.is_empty() {
+        return format!(
+            r#"<div class="waterfall-wrap"><p class="waterfall-empty">Only {} nearby same-weekday reports have complete components; at least 4 are required.</p></div>"#,
+            waterfall.baseline_n
+        );
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 360.0;
+    const LEFT: f64 = 70.0;
+    const RIGHT: f64 = 34.0;
+    const TOP: f64 = 38.0;
+    const BOTTOM: f64 = 62.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let plot_height = HEIGHT - TOP - BOTTOM;
+    let reference_total = waterfall
+        .reference_total
+        .expect("available waterfall has reference");
+    let mut values = vec![reference_total, waterfall.actual_total];
+    for component in &waterfall.components {
+        values.push(component.cumulative_start);
+        values.push(component.cumulative_end);
+    }
+    let min_value = values.iter().copied().reduce(f64::min).unwrap_or(0.0);
+    let max_value = values.iter().copied().reduce(f64::max).unwrap_or(1.0);
+    let spread = (max_value - min_value).max(1.0);
+    let y_min = (min_value - spread * 0.12).max(0.0);
+    let y_max = max_value + spread * 0.12;
+    let y = |value: f64| TOP + plot_height - (value - y_min) / (y_max - y_min) * plot_height;
+    let axis_label = |value: f64| {
+        if value.abs() >= 1_000_000.0 {
+            let decimals = if y_max - y_min < 250_000.0 { 2 } else { 1 };
+            format!("{:.*}M", decimals, value / 1_000_000.0)
+        } else {
+            compact_number(value)
+        }
+    };
+    let slots = waterfall.components.len() + 2;
+    let step = plot_width / slots as f64;
+    let x = |index: usize| LEFT + step * (index as f64 + 0.5);
+    let bar_width = (step * 0.56).clamp(44.0, 78.0);
+
+    let mut svg = format!(
+        r#"<div class="waterfall-wrap"><svg class="waterfall-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Fare-media component waterfall for {}"><g class="grid">"#,
+        escape_attr(&waterfall.date.format("%A, %-d %B %Y").to_string())
+    );
+    for tick in 0..=4 {
+        let value = y_min + (y_max - y_min) * tick as f64 / 4.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 10.0,
+            yy + 4.0,
+            axis_label(value)
+        ));
+    }
+
+    // Reference and selected totals are horizontal anchors rather than bars:
+    // the vertical scale is zoomed so category movements remain visible.
+    let reference_y = y(reference_total);
+    let actual_y = y(waterfall.actual_total);
+    let reference_x = x(0);
+    let actual_x = x(slots - 1);
+    svg.push_str(&format!(
+        r#"<line class="waterfall-total-anchor" x1="{:.1}" x2="{:.1}" y1="{reference_y:.1}" y2="{reference_y:.1}"></line><text class="waterfall-total-label" x="{reference_x:.1}" y="{:.1}" text-anchor="middle">{}</text>"#,
+        reference_x - bar_width / 2.0,
+        reference_x + bar_width / 2.0,
+        reference_y - 10.0,
+        compact_number(reference_total)
+    ));
+
+    for (index, component) in waterfall.components.iter().enumerate() {
+        let xx = x(index + 1);
+        let start_y = y(component.cumulative_start);
+        let end_y = y(component.cumulative_end);
+        let top_y = start_y.min(end_y);
+        let height = (start_y - end_y).abs().max(2.0);
+        let class = if component.delta >= 0.0 {
+            "positive"
+        } else {
+            "negative"
+        };
+        let label = format!(
+            "{}: {} actual vs {} reference; delta {}",
+            component.label,
+            format_count(component.actual),
+            format_count(component.reference),
+            signed_full(component.delta)
+        );
+        let safe = escape_attr(&label);
+        svg.push_str(&format!(
+            r#"<rect class="waterfall-hit" x="{:.1}" y="{TOP}" width="{bar_width}" height="{plot_height}" fill="transparent" tabindex="0" role="img" aria-label="{safe}" data-tooltip="{safe}"></rect><rect class="waterfall-bar {class}" x="{:.1}" y="{top_y:.1}" width="{bar_width}" height="{height:.1}" aria-hidden="true"></rect><text class="waterfall-delta {class}" x="{xx:.1}" y="{:.1}" text-anchor="middle">{}</text><text class="x-label waterfall-x-label" x="{xx:.1}" y="{}" text-anchor="middle">{}</text>"#,
+            xx - bar_width / 2.0,
+            xx - bar_width / 2.0,
+            if component.delta >= 0.0 { top_y - 8.0 } else { top_y + height + 15.0 },
+            signed_full(component.delta),
+            HEIGHT - 24.0,
+            component.label
+        ));
+        if index + 1 < waterfall.components.len() {
+            let next_x = x(index + 2);
+            svg.push_str(&format!(
+                r#"<line class="waterfall-connector" x1="{:.1}" x2="{:.1}" y1="{end_y:.1}" y2="{end_y:.1}"></line>"#,
+                xx + bar_width / 2.0,
+                next_x - bar_width / 2.0
+            ));
+        }
+    }
+    if let Some(last) = waterfall.components.last() {
+        let last_x = x(waterfall.components.len());
+        svg.push_str(&format!(
+            r#"<line class="waterfall-connector" x1="{:.1}" x2="{:.1}" y1="{:.1}" y2="{:.1}"></line>"#,
+            last_x + bar_width / 2.0,
+            actual_x - bar_width / 2.0,
+            y(last.cumulative_end),
+            y(last.cumulative_end)
+        ));
+    }
+    svg.push_str(&format!(
+        r#"<line class="waterfall-total-anchor actual" x1="{:.1}" x2="{:.1}" y1="{actual_y:.1}" y2="{actual_y:.1}"></line><text class="waterfall-total-label" x="{actual_x:.1}" y="{:.1}" text-anchor="middle">{}</text><text class="x-label waterfall-x-label total" x="{reference_x:.1}" y="{}" text-anchor="middle">Reference</text><text class="x-label waterfall-x-label total" x="{actual_x:.1}" y="{}" text-anchor="middle">Selected day</text>"#,
+        actual_x - bar_width / 2.0,
+        actual_x + bar_width / 2.0,
+        actual_y - 10.0,
+        compact_number(waterfall.actual_total),
+        HEIGHT - 24.0,
+        HEIGHT - 24.0
+    ));
+    svg.push_str("</g></svg>");
+    svg.push_str(&format!(
+        r#"<div class="waterfall-legend" aria-label="Waterfall chart legend"><span><i class="legend-dot high"></i>Increase vs reference</span><span><i class="legend-dot low"></i>Decrease vs reference</span><span>n = {} nearby reports</span></div>"#,
+        waterfall.baseline_n
+    ));
+    let insight = waterfall_insight(waterfall);
+    if !insight.is_empty() {
+        svg.push_str(&format!(r#"<p class="insight">{insight}</p>"#));
+    }
+    svg.push_str(&waterfall_table(waterfall));
+    svg.push_str("</div>");
+    svg
+}
+
+pub(crate) fn waterfall_table(waterfall: &ComponentWaterfall) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View component waterfall data table</summary><div class="table-scroll"><table><caption>Fare-media actuals, references, and arithmetic deltas</caption><thead><tr><th scope="col">Category</th><th scope="col">Reference</th><th scope="col">Actual</th><th scope="col">Delta</th></tr></thead><tbody>"#,
+    );
+    for component in &waterfall.components {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td></tr>",
+            component.label,
+            format_count(component.reference),
+            format_count(component.actual),
+            signed_full(component.delta)
+        ));
+    }
+    if let (Some(reference), Some(delta)) = (waterfall.reference_total, waterfall.delta_total) {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">Total</th><td>{}</td><td>{}</td><td>{}</td></tr>",
+            format_count(reference),
+            format_count(waterfall.actual_total),
+            signed_full(delta)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub(crate) fn baseline_table(points: &[WeekdayBaselinePoint]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View weekday baseline data table</summary><div class="table-scroll"><table><caption>Daily totals and rolling same-weekday baselines</caption><thead><tr><th scope="col">Date</th><th scope="col">Weekday</th><th scope="col">Total</th><th scope="col">Median</th><th scope="col">IQR low</th><th scope="col">IQR high</th><th scope="col">Delta</th><th scope="col">Status</th><th scope="col">Baseline n</th></tr></thead><tbody>"#,
+    );
+    for point in points {
+        let delta = baseline_delta_pct(point)
+            .map(|value| format!("{value:+.1}%"))
+            .unwrap_or_else(|| "—".to_string());
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            point.date,
+            weekday_name(point.weekday),
+            format_number_full(point.total),
+            point.median.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+            point.lower_quartile.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+            point.upper_quartile.map(format_number_full).unwrap_or_else(|| "—".to_string()),
+            delta,
+            point.status.label(),
+            point.baseline_n
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
 }
 
 pub fn insight_line(summary: &RangeSummary) -> String {

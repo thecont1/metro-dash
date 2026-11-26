@@ -156,6 +156,18 @@ Two paths feed the same `Dataset` type:
 ### Statistics
 
 - `summarise()` computes: calendar days, observation days, missing days, percentile bands (p2–p98), min/max totals, weekday metrics (mean, sample SD, min/max per weekday)
+- `weekday_baseline_series()` computes a rolling same-weekday median and interquartile band from up to six earlier and six later reports with usable totals; the current day is excluded, at least four usable nearby observations are required, and fewer than four leave the baseline unavailable
+- `fare_mix_series()` aggregates complete parent-component days by calendar month, preserves months with no usable observations as gaps, and never zero-fills missing components
+- `ncmc_share_series()` aggregates days with both Smart Card and NCMC into ISO weeks so count and share panels use the same evidence base
+- `qr_mix_series()` aggregates complete four-provider QR days by month; shares use provider sums while parent QR remains a separate scale measure because they do not always reconcile
+- `smart_mix_series()` aggregates complete Smart Card subtype days by month; shares use subtype sums while parent Smart Cards provide separate scale context
+- `weekday_distribution_series()` computes total-ridership quartiles and observed ranges by weekday without imputing missing dates
+- `weekend_signature_series()` groups complete parent-component days into Monday–Friday, Saturday, and Sunday panels
+- `month_weekday_matrix()` computes observed median ratios and sample sizes for every month-weekday cell without imputation
+- `variability_ranking()` ranks parent categories by robust IQR, absolute and relative to median
+- `reporting_pulse_series()` measures monthly calendar coverage and longest unpublished runs
+- `monthly_estimate_series()` separates observed sums from same-month/weekday mean fills and ±20% sensitivity endpoints
+- `field_completeness_grid()` counts nonblank source fields over published rows by month
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -166,6 +178,19 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 1. **Data card (`data-card`)** — Today's ridership, broken down by fare media
 2. **Calendar heatmap (`calendar`)** — Daily total ridership, one cell per day, percentile colour bands
 3. **Weekday line chart (`commute-casual`)** — Average commuter vs casual ridership by weekday
+4. **Weekday baseline chart (`weekday-baseline`)** — Daily totals compared with a rolling same-weekday median and interquartile band
+5. **Component waterfall (`component-waterfall`)** — Fare-media arithmetic contributions to the selected day's difference from its same-weekday reference
+6. **Fare-media mix (`fare-media-mix`)** — Monthly 100% share columns with observed absolute totals shown separately
+7. **NCMC share (`ncmc-share`)** — Weekly NCMC share of Smart Cards + NCMC with counts shown separately
+8. **QR channel mix (`qr-channel-mix`)** — Monthly provider-level shares with parent Total QR shown separately
+9. **Smart Card subtype mix (`smart-card-mix`)** — Monthly subtype shares with parent Smart Cards shown separately
+10. **Weekday distributions (`weekday-distributions`)** — Median/IQR/full-range distribution for each weekday
+11. **Weekend signatures (`weekend-signatures`)** — Day-group total distributions plus aggregate fare-media shares
+12. **Month-by-weekday matrix (`month-weekday-matrix`)** — Monthly weekday medians as ratios to selected-range weekday baselines
+13. **Variability ranking (`variability-ranking`)** — Parent-category IQR and IQR/median ranking
+14. **Reporting pulse (`reporting-pulse`)** — Monthly published/calendar coverage and longest gaps
+15. **Monthly estimates (`monthly-estimates`)** — Observed sums plus clearly separated weekday-based gap estimates
+16. **Field completeness (`field-completeness`)** — Month-by-field nonblank coverage grid
 
 ### Adding a new chart
 
@@ -189,6 +214,34 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 - SSR: Static SVG with two series (commute, casual)
 - D3: Animated area/line drawing with a viewport-aware viewBox so the plot fills the available width, plus interactive points with tooltips
 - Insight line: auto-generated text describing peak days for each series
+
+### Unusual for its Weekday?
+
+- SSR: Static SVG with the observed daily series, rolling same-weekday median, IQR band, point status colours, and an accessible data table
+- D3: Time-scaled SVG with keyboard-focusable points and tooltips
+- Baseline window: up to six earlier and six later published reports with the same weekday; the current day is excluded
+- Missing reports are omitted rather than treated as zero; the observed daily line breaks across gaps longer than seven days
+
+### What Accounts for the Difference?
+
+- SSR: Static SVG waterfall with reference/selected total anchors, floating component deltas, and an accessible data table
+- D3: Animated floating bars with keyboard-focusable tooltips
+- Reference construction: medians of the same nearby same-weekday reports across all five published parent categories, requiring complete Smart Card, NCMC, Token, QR, and Group Ticket values; leaf/provider sums are deliberately not substituted because QR provider splits do not always reconcile with `Total QR`
+- The reference total is the sum of category medians, so reference + deltas = selected-day total exactly
+
+### How is the Fare-Media Mix Shifting?
+
+- SSR: Static SVG with monthly normalized share columns, a separate observed-total strip with visible complete-day counts, gap treatment for unusable months, a legend, and an accessible data table
+- D3: Animated share segments and total bars with keyboard-focusable tooltips; narrow viewports use a fixed legible scale with contained horizontal scrolling
+- Aggregation: published parent-category totals summed only across days where all five parent components are present; the same complete days feed both shares and the observed-total strip
+- Interpretation: lower bars are observed totals, not full-month totals; shares are aggregate composition and do not prove individual switching
+
+### How is NCMC’s Share Changing?
+
+- SSR: Static SVG with a weekly share line/points, a separate NCMC count strip, coverage labels, and an accessible data table
+- D3: Animated points/bars with keyboard-focusable tooltips; narrow viewports use fixed legible scale with contained horizontal scrolling
+- Aggregation: only days with both Smart Card and NCMC contribute, so numerator and denominator use the same evidence base
+- Interpretation: fare-media composition arithmetic; it cannot prove that Smart Card users converted to NCMC
 
 ## Client-side architecture
 
@@ -230,7 +283,7 @@ The client JS is a single IIFE embedded in the page. It:
 ### Rust unit tests (`src/tests.rs`, `#[cfg(all(test, feature = "server"))]`)
 
 - CSV parsing: aliases, numeric values, dates, duplicates, missing components
-- Statistics: quantile interpolation, sample SD, weekday ordering
+- Statistics: quantile interpolation, sample SD, weekday ordering, centred same-weekday baselines
 - Range logic: clamping, snapping, link generation
 - Calendar markup: leap day, partial weeks, month boundaries
 - Payload: chart readiness, JSON serialization
