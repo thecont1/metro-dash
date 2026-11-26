@@ -394,15 +394,18 @@ Standard deviation is unavailable for `n < 2`. Missing series observations rende
 
 ### Cloudflare Pages (primary — zero VM)
 
-The production deployment is a static site. Build and publish:
+The production deployment is a static site. Pushes to `main` run the `deploy-pages` job in `.github/workflows/ci.yml` after the Rust and WASM verification jobs. The job builds the site and publishes it with Wrangler:
 
 ```sh
 bash scripts/build-site.sh   # produces site/ (index.html + wasm/ + _headers)
+wrangler pages deploy site --project-name=metro-dash --branch=main
 ```
 
-Deploy `site/` to a Cloudflare Pages project (direct upload or git integration). `site/_headers` mirrors the security headers the Rust server sends — including a CSP with `'wasm-unsafe-eval'` (required for WASM compilation) and `connect-src` allowing `raw.githubusercontent.com` (the live CSV fetch).
+The workflow expects two repository Actions secrets: `CLOUDFLARE_API_TOKEN` (an account token with only Account → Cloudflare Pages → Edit) and `CLOUDFLARE_ACCOUNT_ID`. The project is a Cloudflare Pages direct-upload project named `metro-dash`; it is not connected to Cloudflare's Git integration.
 
-There is no server, no volume, and no refresh webhook: every page load fetches the CSV straight from GitHub, so data is as fresh as the sister repo's last push. The `POST /api/refresh` step was removed from `namma-metro-ridership-tracker`'s workflow accordingly.
+`site/_headers` mirrors the security headers the Rust server sends — including a CSP with `'wasm-unsafe-eval'` (required for WASM compilation) and `connect-src` allowing `raw.githubusercontent.com` (the live CSV fetch) plus Cloudflare Web Analytics.
+
+There is no server, no volume, and no refresh webhook: every page load fetches the CSV straight from GitHub, so data is as fresh as the sister repo's last push. The `POST /api/refresh` step was removed from `namma-metro-ridership-tracker`'s workflow accordingly. Do not deploy a production export created with `export --csv`; that mode bundles the CSV beside `index.html` and points the browser at that static copy. It is useful for local validation, but production exports must use the default live-source fetch so `sourceUrl` remains the canonical GitHub CSV.
 
 A good release gate is:
 
