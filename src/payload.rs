@@ -2,16 +2,16 @@ use serde::Serialize;
 
 use crate::charts::{
     CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown, format_number_full,
-    format_range, insight_line, weekday_distribution_insight, weekday_name,
-    weekend_signature_insight,
+    format_range, insight_line, month_weekday_matrix_insight, weekday_distribution_insight,
+    weekday_name, weekend_signature_insight,
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
-    FareMixMonth, NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth,
-    WeekdayBaselinePoint, WeekdayDistribution, WeekendSignature, component_waterfall,
-    fare_mix_series, last_n_months_range, ncmc_share_series, qr_mix_series, record_index,
-    smart_mix_series, summarise, weekday_baseline_series, weekday_distribution_series,
-    weekend_signature_series,
+    FareMixMonth, MonthWeekdayMatrix, NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord,
+    SmartMixMonth, WeekdayBaselinePoint, WeekdayDistribution, WeekendSignature,
+    component_waterfall, fare_mix_series, last_n_months_range, month_weekday_matrix,
+    ncmc_share_series, qr_mix_series, record_index, smart_mix_series, summarise,
+    weekday_baseline_series, weekday_distribution_series, weekend_signature_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -150,6 +150,7 @@ pub struct PayloadCharts {
     pub smart_mix: FareMediaMixPayload,
     pub weekday_distribution: WeekdayDistributionPayload,
     pub weekend_signatures: WeekendSignaturesPayload,
+    pub month_weekday_matrix: MonthWeekdayMatrixPayload,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -273,6 +274,38 @@ pub struct WeekdayBaselinePointPayload {
     pub delta_pct_label: Option<String>,
     pub status: &'static str,
     pub status_label: &'static str,
+    pub tooltip: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonthWeekdayMatrixPayload {
+    pub months: Vec<MonthLabelPayload>,
+    pub cells: Vec<MonthWeekdayCellPayload>,
+    pub insight: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonthLabelPayload {
+    pub month: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonthWeekdayCellPayload {
+    pub month: String,
+    pub weekday: &'static str,
+    pub weekday_short: &'static str,
+    pub weekday_index: usize,
+    pub n: usize,
+    pub median: Option<f64>,
+    pub median_label: Option<String>,
+    pub ratio: Option<f64>,
+    pub ratio_label: Option<String>,
+    pub css_class: String,
+    pub heat: f64,
     pub tooltip: String,
 }
 
@@ -411,6 +444,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let weekday_distribution =
         weekday_distribution_payload(&weekday_distribution_series(dataset, range));
     let weekend_signatures = weekend_signatures_payload(&weekend_signature_series(dataset, range));
+    let month_weekday_matrix = month_weekday_matrix_payload(&month_weekday_matrix(dataset, range));
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -470,6 +504,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             smart_mix,
             weekday_distribution,
             weekend_signatures,
+            month_weekday_matrix,
         },
         presets: range_presets(dataset)
             .iter()
@@ -489,6 +524,73 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 method: definition.method,
             })
             .collect(),
+    }
+}
+
+fn month_weekday_matrix_payload(matrix: &MonthWeekdayMatrix) -> MonthWeekdayMatrixPayload {
+    let cells = matrix
+        .cells
+        .iter()
+        .map(|cell| {
+            let css_class = if cell.n == 0 || cell.ratio.is_none() {
+                "empty"
+            } else if cell.ratio.unwrap_or(1.0) >= 1.05 {
+                "high"
+            } else if cell.ratio.unwrap_or(1.0) <= 0.95 {
+                "low"
+            } else {
+                "neutral"
+            }
+            .to_string();
+            let tooltip = if cell.n == 0 {
+                format!(
+                    "{} {}: no published totals in the selected range.",
+                    cell.month.format("%b %Y"),
+                    weekday_name(cell.weekday)
+                )
+            } else {
+                format!(
+                    "{} {}: median {}, {:.1}% of the overall {} median, n {}.",
+                    cell.month.format("%b %Y"),
+                    weekday_name(cell.weekday),
+                    cell.median
+                        .map(format_number_full)
+                        .unwrap_or_else(|| "—".into()),
+                    cell.ratio.unwrap_or(0.0) * 100.0,
+                    weekday_name(cell.weekday),
+                    cell.n
+                )
+            };
+            MonthWeekdayCellPayload {
+                month: cell.month.to_string(),
+                weekday: weekday_name(cell.weekday),
+                weekday_short: weekday_name(cell.weekday).get(..3).unwrap_or(""),
+                weekday_index: cell.weekday.num_days_from_monday() as usize,
+                n: cell.n,
+                median: cell.median,
+                median_label: cell.median.map(format_number_full),
+                ratio: cell.ratio,
+                ratio_label: cell.ratio.map(|ratio| format!("{:.1}%", ratio * 100.0)),
+                css_class,
+                heat: cell
+                    .ratio
+                    .map(|ratio| ((ratio - 1.0).abs() / 0.3).min(1.0))
+                    .unwrap_or(0.0),
+                tooltip,
+            }
+        })
+        .collect();
+    MonthWeekdayMatrixPayload {
+        months: matrix
+            .months
+            .iter()
+            .map(|month| MonthLabelPayload {
+                month: month.to_string(),
+                label: month.format("%b ’%y").to_string(),
+            })
+            .collect(),
+        cells,
+        insight: month_weekday_matrix_insight(matrix),
     }
 }
 

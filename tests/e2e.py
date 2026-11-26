@@ -68,7 +68,7 @@ with sync_playwright() as playwright:
     check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "false", "next chart is not focusable")
     chart_jump = page.locator(".chart-jump")
     check(chart_jump.count() == 1, "chart jump select is missing")
-    check(chart_jump.locator("option").count() == 11, "chart jump select does not list every chart")
+    check(chart_jump.locator("option").count() == 12, "chart jump select does not list every chart")
     check(chart_jump.input_value() == "data-card", "chart jump select is not synced to the active chart")
     check(page.locator("#chart-data").count() == 1, "embedded Rust chart payload is missing")
     check(page.locator(".chart-shell.d3-enhanced").count() == 1, "D3 enhancement did not initialise")
@@ -304,9 +304,18 @@ with sync_playwright() as playwright:
     page.locator(".d3-signature-scene").wait_for(state="visible", timeout=10000)
     page.wait_for_function("() => document.querySelectorAll('.d3-signature-hit').length === 3", timeout=10000)
     check(page.locator(".d3-signature-share").count() >= 3, "weekend signature share segments are missing")
-    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
     page.locator(".d3-signature-hit").first.focus()
     check("complete of" in page.locator("#chart-tooltip").text_content(), "weekend signature tooltip lacks coverage context")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Does the Weekday Pattern Vary by Month?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-matrix-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.matrix-cell').length >= 7", timeout=10000)
+    check(page.locator(".matrix-row-label").count() >= 1, "month matrix row labels are missing")
+    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
+    page.locator(".matrix-cell[data-tooltip]").first.focus()
+    check("weekday" in page.locator("#chart-tooltip").text_content() or "median" in page.locator("#chart-tooltip").text_content(), "matrix tooltip lacks context")
 
 
     # Range change through the date picker recomputes the payload. The target
@@ -343,7 +352,7 @@ with sync_playwright() as playwright:
         f"() => {{ const s = JSON.parse(sessionStorage.getItem('metroDashState') || '{{}}'); return s.end === '{target_end}'; }}",
         timeout=10000,
     )
-    check(state(page).get("chart") == "weekend-signatures", "range change reset the active chart")
+    check(state(page).get("chart") == "month-weekday-matrix", "range change reset the active chart")
 
     # On the static site the WASM compute core answers every range change
     # locally; /api/* must stay untouched. The self-hosted server has no

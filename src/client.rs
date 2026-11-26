@@ -39,8 +39,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let computeState = 'pending';
   let computeSettled = null;
 
-  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true, 'qr-channel-mix': true, 'smart-card-mix': true, 'weekday-distributions': true, 'weekend-signatures': true };
-  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share', 'qr-channel-mix', 'smart-card-mix', 'weekday-distributions', 'weekend-signatures'];
+  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true, 'qr-channel-mix': true, 'smart-card-mix': true, 'weekday-distributions': true, 'weekend-signatures': true, 'month-weekday-matrix': true };
+  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share', 'qr-channel-mix', 'smart-card-mix', 'weekday-distributions', 'weekend-signatures', 'month-weekday-matrix'];
   if (chartJump) {
     chartJump.querySelectorAll('option').forEach((option) => {
       if (!chartRegistry[option.value]) option.remove();
@@ -1604,6 +1604,38 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+
+  const renderMonthWeekdayMatrix = (animate = true) => {
+    const scene = ensureScene('d3-matrix-scene');
+    const matrix = payload.charts.monthWeekdayMatrix || {months: [], cells: []};
+    if (!matrix.months.length) {
+      scene.html('<p class="matrix-empty">No months are available in the selected range.</p>');
+      choreograph(scene.node());
+      return;
+    }
+    let html = `<p class="d3-insight insight">${matrix.insight || ''}</p><div class="matrix-scroll"><div class="weekday-matrix" role="grid" aria-label="Month by weekday ratio matrix"><span class="matrix-corner"></span>`;
+    ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(day => { html += `<span class="matrix-heading">${day}</span>`; });
+    matrix.months.forEach(month => {
+      html += `<span class="matrix-row-label">${month.label}</span>`;
+      for (let weekdayIndex = 0; weekdayIndex < 7; weekdayIndex++) {
+        const cell = matrix.cells.find(item => item.month === month.month && item.weekdayIndex === weekdayIndex);
+        if (!cell) {
+          html += '<span class="matrix-cell matrix-empty"><b>—</b><small>n 0</small></span>';
+          continue;
+        }
+        const main = cell.n ? (cell.ratioLabel || '—') : '—';
+        html += `<span class="matrix-cell matrix-${cell.cssClass}" style="--heat:${cell.heat}" role="gridcell" tabindex="0" aria-label="${cell.tooltip}" data-tooltip="${cell.tooltip}"><b>${main}</b><small>n ${cell.n}</small></span>`;
+      }
+    });
+    html += '</div></div><div class="matrix-legend"><span><i class="matrix-key matrix-high"></i>Above baseline</span><span><i class="matrix-key matrix-neutral"></i>Near baseline</span><span><i class="matrix-key matrix-low"></i>Below baseline</span><span><i class="matrix-key matrix-empty"></i>No observations</span></div>';
+    scene.html(html);
+    if (D3) bindTooltip(scene.selectAll('.matrix-cell[data-tooltip]'));
+    if (canAnimate && animate && GSAP) {
+      GSAP.fromTo(scene.selectAll('.matrix-cell').nodes(), {opacity: 0, scale: .94}, {opacity: 1, scale: 1, duration: .28, stagger: .006, ease: 'power2.out'});
+    }
+    choreograph(scene.node());
+  };
+
   const renderActiveChart = (animate = true) => {
     hideTooltipImmediately();
     syncChartChrome();
@@ -1617,7 +1649,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     else if (activeChart === 'qr-channel-mix') renderQrMix(animate);
     else if (activeChart === 'smart-card-mix') renderSmartMix(animate);
     else if (activeChart === 'weekday-distributions') renderWeekdayDistribution(animate);
-    else renderWeekendSignatures(animate);
+    else if (activeChart === 'weekend-signatures') renderWeekendSignatures(animate);
+    else renderMonthWeekdayMatrix(animate);
   };
 
   // The static site ships a wasm compute core; when present, range changes
@@ -1739,6 +1772,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       if (activeChart === 'smart-card-mix') renderSmartMix(false);
       if (activeChart === 'weekday-distributions') renderWeekdayDistribution(false);
       if (activeChart === 'weekend-signatures') renderWeekendSignatures(false);
+      if (activeChart === 'month-weekday-matrix') renderMonthWeekdayMatrix(false);
     }, 120);
   });
   // Day cycling buttons on the data card — change the end date by one

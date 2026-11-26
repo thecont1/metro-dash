@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{NaiveDate, Weekday};
+use chrono::{Datelike, NaiveDate, Weekday};
 use reqwest::Client;
 use tokio::sync::RwLock;
 
@@ -8,9 +8,9 @@ use crate::charts::{Chart, band_label, calendar_markup, line_chart_markup};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
     BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
-    component_waterfall, fare_mix_series, ncmc_share_series, parse_dataset, qr_mix_series,
-    quantile, smart_mix_series, summarise, weekday_baseline_series, weekday_distribution_series,
-    weekend_signature_series,
+    component_waterfall, fare_mix_series, month_weekday_matrix, ncmc_share_series, parse_dataset,
+    qr_mix_series, quantile, smart_mix_series, summarise, weekday_baseline_series,
+    weekday_distribution_series, weekend_signature_series,
 };
 use crate::payload::chart_payload_for;
 use crate::render::{chart_jump_markup, parse_query, range_action_links};
@@ -168,6 +168,39 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
     assert_eq!(target.lower_quartile, Some(112.5));
     assert_eq!(target.upper_quartile, Some(137.5));
     assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
+fn month_weekday_matrix_reports_ratios_and_sample_sizes() {
+    let csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n\
+01-01-2024,40,10,20,10,20\n\
+05-02-2024,80,20,40,20,40\n";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let matrix = month_weekday_matrix(
+        &dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 2, 29).unwrap(),
+        },
+    );
+    assert_eq!(matrix.months.len(), 2);
+    assert_eq!(matrix.cells.len(), 14);
+    let jan_mon = matrix
+        .cells
+        .iter()
+        .find(|cell| cell.month.month() == 1 && cell.weekday == chrono::Weekday::Mon)
+        .unwrap();
+    assert_eq!(jan_mon.n, 1);
+    assert_eq!(jan_mon.median, Some(100.0));
+    assert_eq!(jan_mon.ratio, Some(100.0 / 150.0));
+    let feb_mon = matrix
+        .cells
+        .iter()
+        .find(|cell| cell.month.month() == 2 && cell.weekday == chrono::Weekday::Mon)
+        .unwrap();
+    assert_eq!(feb_mon.n, 1);
+    assert_eq!(feb_mon.median, Some(200.0));
+    assert_eq!(feb_mon.ratio, Some(200.0 / 150.0));
 }
 
 #[test]
@@ -607,6 +640,11 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
         serde_json::to_string(&payload)
             .unwrap()
             .contains("weekendSignatures")
+    );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("monthWeekdayMatrix")
     );
     assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);

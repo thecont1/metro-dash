@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
-    BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, NcmcShareWeek,
-    QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint,
+    BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, MonthWeekdayMatrix,
+    NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint,
     WeekdayDistribution, WeekdayMetric, WeekendSignature,
 };
 
@@ -22,6 +22,7 @@ pub enum Chart {
     SmartMix,
     WeekdayDistribution,
     WeekendSignatures,
+    MonthWeekdayMatrix,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -33,7 +34,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 11] = [
+pub static CHARTS: [ChartDefinition; 12] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -110,6 +111,13 @@ pub static CHARTS: [ChartDefinition; 11] = [
         title: "How Does the Weekend Signature Differ?",
         deck: "Monday–Friday, Saturday, and Sunday total distributions beside their fare-media share mix.",
         method: "Each panel uses only published days with complete parent components, so the total distribution and share mix share the same evidence base. Boxes show median, interquartile range, and observed range; bars show aggregate fare-media shares summed over those same days. Day groups are calendar labels, not observed commuter or leisure identities.",
+    },
+    ChartDefinition {
+        chart: Chart::MonthWeekdayMatrix,
+        slug: "month-weekday-matrix",
+        title: "Does the Weekday Pattern Vary by Month?",
+        deck: "Month-by-weekday medians as ratios to each weekday’s overall level in the selected range.",
+        method: "Each cell is the median of published daily totals for that month and weekday, divided by the median for that weekday across the whole selected range. Purple is above the weekday baseline, rust below, and grey near it; n appears in every cell. Empty cells have no published totals. Ratios are descriptive and unstable with small samples.",
     },
 ];
 
@@ -903,6 +911,141 @@ fn smart_mix_table(months: &[SmartMixMonth]) -> String {
             month.month.format("%b %Y"), month.complete_days, month.published_days,
             if month.has_mix() { format_number_full(month.parent_smart_total) } else { "—".into() },
             share(0), share(1), share(2), share(3)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+fn matrix_ratio_class(cell: &crate::data::MonthWeekdayCell) -> &'static str {
+    if cell.n == 0 || cell.ratio.is_none() {
+        "empty"
+    } else if cell.ratio.unwrap_or(1.0) >= 1.05 {
+        "high"
+    } else if cell.ratio.unwrap_or(1.0) <= 0.95 {
+        "low"
+    } else {
+        "neutral"
+    }
+}
+
+fn matrix_cell_tooltip(cell: &crate::data::MonthWeekdayCell) -> String {
+    if cell.n == 0 {
+        format!(
+            "{} {}: no published totals in the selected range.",
+            cell.month.format("%b %Y"),
+            weekday_name(cell.weekday)
+        )
+    } else {
+        format!(
+            "{} {}: median {}, {:.1}% of the overall {} median, n {}.",
+            cell.month.format("%b %Y"),
+            weekday_name(cell.weekday),
+            cell.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            cell.ratio.unwrap_or(0.0) * 100.0,
+            weekday_name(cell.weekday),
+            cell.n
+        )
+    }
+}
+
+pub fn month_weekday_matrix_insight(matrix: &MonthWeekdayMatrix) -> String {
+    let usable: Vec<&crate::data::MonthWeekdayCell> = matrix
+        .cells
+        .iter()
+        .filter(|cell| cell.n >= 2 && cell.ratio.is_some())
+        .collect();
+    if usable.is_empty() {
+        return "No month-weekday cells with at least two observations in the selected range."
+            .to_string();
+    }
+    let highest = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| a.ratio.unwrap_or(0.0).total_cmp(&b.ratio.unwrap_or(0.0)))
+        .expect("nonempty");
+    let lowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| a.ratio.unwrap_or(0.0).total_cmp(&b.ratio.unwrap_or(0.0)))
+        .expect("nonempty");
+    format!(
+        "Highest ratio: {} {} at {:.1}% of its weekday baseline; lowest: {} {} at {:.1}%. Cells with n<2 are excluded from this comparison.",
+        highest.month.format("%b %Y"),
+        weekday_name(highest.weekday),
+        highest.ratio.unwrap_or(0.0) * 100.0,
+        lowest.month.format("%b %Y"),
+        weekday_name(lowest.weekday),
+        lowest.ratio.unwrap_or(0.0) * 100.0
+    )
+}
+
+pub fn month_weekday_matrix_markup(matrix: &MonthWeekdayMatrix) -> String {
+    let mut html = String::from(
+        r#"<div class="matrix-ssr-wrap"><div class="matrix-scroll"><div class="weekday-matrix" role="grid" aria-label="Month by weekday ratio matrix"><span class="matrix-corner"></span>"#,
+    );
+    for weekday in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+        html.push_str(&format!(r#"<span class="matrix-heading">{weekday}</span>"#));
+    }
+    for month in &matrix.months {
+        html.push_str(&format!(
+            r#"<span class="matrix-row-label">{}</span>"#,
+            month.format("%b ’%y")
+        ));
+        for weekday_index in 0..7 {
+            let cell = matrix
+                .cells
+                .iter()
+                .find(|cell| {
+                    cell.month == *month
+                        && cell.weekday.num_days_from_monday() as usize == weekday_index
+                })
+                .expect("matrix contains every month-weekday cell");
+            let class = matrix_ratio_class(cell);
+            let tooltip = escape_attr(&matrix_cell_tooltip(cell));
+            let heat = cell
+                .ratio
+                .map(|ratio| ((ratio - 1.0).abs() / 0.3).min(1.0))
+                .unwrap_or(0.0);
+            let main = if cell.n == 0 {
+                "—".to_string()
+            } else {
+                format!("{:.0}%", cell.ratio.unwrap_or(0.0) * 100.0)
+            };
+            html.push_str(&format!(
+                r#"<span class="matrix-cell matrix-{class}" style="--heat:{heat:.3}" role="gridcell" tabindex="0" aria-label="{tooltip}" data-tooltip="{tooltip}"><b>{main}</b><small>n {}</small></span>"#,
+                cell.n
+            ));
+        }
+    }
+    html.push_str(r#"</div></div><div class="matrix-legend"><span><i class="matrix-key matrix-high"></i>Above baseline</span><span><i class="matrix-key matrix-neutral"></i>Near baseline</span><span><i class="matrix-key matrix-low"></i>Below baseline</span><span><i class="matrix-key matrix-empty"></i>No observations</span></div>"#);
+    html.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        month_weekday_matrix_insight(matrix)
+    ));
+    html.push_str(&month_weekday_matrix_table(matrix));
+    html.push_str("</div>");
+    html
+}
+
+fn month_weekday_matrix_table(matrix: &MonthWeekdayMatrix) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View month-by-weekday matrix data table</summary><div class="table-scroll"><table><caption>Median daily total and ratio to weekday baseline</caption><thead><tr><th scope="col">Month</th><th scope="col">Weekday</th><th scope="col">n</th><th scope="col">Median</th><th scope="col">Ratio</th></tr></thead><tbody>"#,
+    );
+    for cell in &matrix.cells {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            cell.month.format("%b %Y"),
+            weekday_name(cell.weekday),
+            cell.n,
+            cell.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            cell.ratio
+                .map(|ratio| format!("{:.1}%", ratio * 100.0))
+                .unwrap_or_else(|| "—".into())
         ));
     }
     table.push_str("</tbody></table></div></details>");

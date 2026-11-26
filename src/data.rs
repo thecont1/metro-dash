@@ -205,6 +205,21 @@ impl SmartMixMonth {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MonthWeekdayCell {
+    pub month: NaiveDate,
+    pub weekday: Weekday,
+    pub n: usize,
+    pub median: Option<f64>,
+    pub ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MonthWeekdayMatrix {
+    pub months: Vec<NaiveDate>,
+    pub cells: Vec<MonthWeekdayCell>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct WeekendSignature {
     pub key: &'static str,
     pub label: &'static str,
@@ -1053,6 +1068,62 @@ fn smart_subtype_components(record: &RidershipRecord) -> Option<[f64; 4]> {
         record.three_day_pass?,
         record.five_day_pass?,
     ])
+}
+
+/// Month-by-weekday medians expressed as ratios to that weekday's overall
+/// median in the selected range. Cells use observed totals only and retain n.
+pub fn month_weekday_matrix(dataset: &Dataset, range: DateRange) -> MonthWeekdayMatrix {
+    let mut weekday_values: [Vec<f64>; 7] = Default::default();
+    for record in &dataset.records {
+        if record.date >= range.start
+            && record.date <= range.end
+            && let Some(total) = record.total_ridership
+        {
+            weekday_values[record.date.weekday().num_days_from_monday() as usize].push(total);
+        }
+    }
+    let weekday_medians: Vec<Option<f64>> = weekday_values
+        .iter()
+        .map(|values| quantile(values, 0.5))
+        .collect();
+    let mut months = Vec::new();
+    let mut cells = Vec::new();
+    let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+        .expect("valid month start");
+    while cursor <= range.end {
+        let next_month = cursor
+            .checked_add_months(Months::new(1))
+            .expect("valid next month");
+        let month_end = (next_month - Duration::days(1)).min(range.end);
+        months.push(cursor);
+        for (weekday_index, weekday_baseline) in weekday_medians.iter().enumerate().take(7) {
+            let weekday = Weekday::try_from(weekday_index as u8).expect("valid weekday");
+            let values: Vec<f64> = dataset
+                .records
+                .iter()
+                .filter(|record| {
+                    record.date >= cursor.max(range.start)
+                        && record.date <= month_end
+                        && record.date.weekday() == weekday
+                })
+                .filter_map(|record| record.total_ridership)
+                .collect();
+            let median = quantile(&values, 0.5);
+            let ratio = match (median, *weekday_baseline) {
+                (Some(value), Some(baseline)) if baseline != 0.0 => Some(value / baseline),
+                _ => None,
+            };
+            cells.push(MonthWeekdayCell {
+                month: cursor,
+                weekday,
+                n: values.len(),
+                median,
+                ratio,
+            });
+        }
+        cursor = next_month;
+    }
+    MonthWeekdayMatrix { months, cells }
 }
 
 /// Compare Monday–Friday, Saturday, and Sunday using only days with complete

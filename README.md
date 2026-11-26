@@ -2,7 +2,7 @@
 
 **Live site:** <https://namma.thecontrarian.in> (static site on Cloudflare Pages)
 
-A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL ridership CSV into eleven interactive charts, with no sign-up or downloads needed.
+A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL ridership CSV into twelve interactive charts, with no sign-up or downloads needed.
 
 ## What it shows
 
@@ -17,6 +17,7 @@ A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL rid
 9. **What is Inside Smart Cards?** — monthly Stored Value, One Day Pass, Three Day Pass, and Five Day Pass shares with parent Smart Cards shown separately. *Method note:* shares use the subtype sum and only days with all four subtype fields present contribute. Missing fields exclude the day rather than becoming zero; subtype counts are fare-media counts, not unique people or trip purposes.
 10. **How Predictable is Each Weekday?** — median, interquartile range, full observed range, and sample size for each weekday. *Method note:* distributions use published derived totals only; missing reports are omitted rather than zero-filled. Variability is descriptive and is not evidence of crowding, capacity pressure, or rider demographics.
 11. **How Does the Weekend Signature Differ?** — Monday–Friday, Saturday, and Sunday total distributions beside aggregate fare-media shares. *Method note:* each panel uses only days with complete published parent components so distributions and shares share the same evidence base. Day groups are calendar labels, not observed commuter/leisure identities, and cannot support demographic or trip-purpose conclusions.
+12. **Does the Weekday Pattern Vary by Month?** — a month-by-weekday matrix of median totals as ratios to that weekday’s overall baseline. *Method note:* cells use observed totals only and display n; empty cells have no published totals. Ratios are descriptive, unstable with small samples, and do not identify seasonal causes.
 
 ## How to use it
 
