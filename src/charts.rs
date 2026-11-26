@@ -33,7 +33,7 @@ pub static CHARTS: [ChartDefinition; 3] = [
         chart: Chart::Calendar,
         slug: "calendar",
         title: "Daily Total Ridership",
-        deck: "Each square is one calendar day. Deeper the purple, higher the total.",
+        deck: "Each cell is one calendar day. Deeper the purple, higher the total.",
         method: "Each cell shows one day. The hue tells you how that day's total compares with the other days you've selected — lighter means lower, darker means higher. Crossed cells are days BMRCL didn't publish.",
     },
     ChartDefinition {
@@ -410,9 +410,10 @@ pub fn line_chart_markup(summary: &RangeSummary) -> String {
     const WIDTH: f64 = 900.0;
     const HEIGHT: f64 = 410.0;
     const LEFT: f64 = 66.0;
-    const RIGHT: f64 = 28.0;
+    const RIGHT: f64 = 10.0;
     const TOP: f64 = 24.0;
     const BOTTOM: f64 = 66.0;
+    const X_INSET: f64 = 18.0;
     let max_value = summary
         .commute
         .iter()
@@ -427,7 +428,7 @@ pub fn line_chart_markup(summary: &RangeSummary) -> String {
         .max(1.0);
     let plot_width = WIDTH - LEFT - RIGHT;
     let plot_height = HEIGHT - TOP - BOTTOM;
-    let x = |index: usize| LEFT + index as f64 * plot_width / 6.0;
+    let x = |index: usize| LEFT + X_INSET + index as f64 * (plot_width - X_INSET * 2.0) / 6.0;
     let y = |value: f64| TOP + plot_height - value / max_value * plot_height;
     let mut svg = format!(
         r#"<div class="line-chart-wrap"><svg class="line-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Average daily ridership by weekday for commute and casual fare media"><g class="grid">"#
@@ -467,7 +468,7 @@ pub fn line_chart_markup(summary: &RangeSummary) -> String {
             }
         }
         svg.push_str(&format!(
-            r#"<path class="series {class}" d="{path}" fill="none"></path>"#
+            r#"<path class="series {class}" d="{path}"></path>"#
         ));
         for (index, metric) in metrics.iter().enumerate() {
             let Some(mean) = metric.mean else {

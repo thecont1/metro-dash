@@ -9,7 +9,7 @@
 - **Audience**: Non-technical public-data consumers
 - **Scale**: Three interactive chart slides
 - **Data source**: Fresh CSV pulled from GitHub by the browser on each page load
-- **Interaction model**: One chart per view; left/right arrows navigate between charts; date range controls recalculate all visualisations locally in WASM
+- **Interaction model**: One chart per view; previous/next controls, a chart jump menu, left/right arrows, and swipe navigate between charts; date range controls recalculate all visualisations locally in WASM
 - **Accessibility**: SSR fallback for every chart, keyboard navigation, ARIA labels, reduced-motion support
 - **Clean URL**: The URL is always `/`; chart and range state live in `sessionStorage` for the current pageview only and reset on refresh
 
@@ -179,7 +179,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 ### Calendar heatmap
 
 - SSR: CSS grid of `<button>` cells with percentile-based band classes
-- D3: SVG with animated cell transitions, horizontal scroll for wide ranges, month separator lines
+- D3: SVG with animated cell transitions, fixed 22px square cells, horizontal scrolling within the chart when the range exceeds the available width, and month separator lines
 - Percentile bands: 10 buckets from `< p2` to `> p98`, each with a CSS custom property `--band-N`
 - Missing days: crossed cells with diagonal lines
 - Default range when opened: **Last 6 months**
@@ -187,7 +187,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 ### Commute vs Casual by Weekday
 
 - SSR: Static SVG with two series (commute, casual)
-- D3: Animated area/line drawing, interactive points with tooltips
+- D3: Animated area/line drawing with a viewport-aware viewBox so the plot fills the available width, plus interactive points with tooltips
 - Insight line: auto-generated text describing peak days for each series
 
 ## Client-side architecture
@@ -200,7 +200,7 @@ The client JS is a single IIFE embedded in the page. It:
 4. Syncs date range controls (sliders ↔ date pickers)
 5. On date range change, calls `chartPayload(start, end)` locally in WASM; if the WASM core is unavailable (e.g. self-hosted server build), falls back to `GET /api/chart`
 6. Keeps chart and range state in `sessionStorage`
-7. Handles keyboard navigation (arrow keys for chart switching)
+7. Handles chart navigation (previous/next controls, jump menu, arrow keys, and swipe)
 8. Resets `sessionStorage` on every page load so the user always lands on the latest datapoint
 9. Respects `prefers-reduced-motion`
 

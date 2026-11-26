@@ -4,15 +4,16 @@ use chrono::{NaiveDate, Weekday};
 use reqwest::Client;
 use tokio::sync::RwLock;
 
-use crate::charts::{Chart, band_label, calendar_markup};
+use crate::charts::{Chart, band_label, calendar_markup, line_chart_markup};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
     Dataset, DateRange, RangeSummary, choose_range, clean_number, parse_dataset, quantile,
     summarise,
 };
 use crate::payload::chart_payload_for;
-use crate::render::{parse_query, range_action_links};
+use crate::render::{chart_jump_markup, parse_query, range_action_links};
 use crate::server::{AppState, constant_time_eq};
+use crate::style::STYLE;
 
 fn fixture_dataset() -> Dataset {
     parse_dataset(
@@ -181,6 +182,18 @@ fn range_actions_render_clean_href_with_data_attrs() {
 }
 
 #[test]
+fn chart_jump_lists_every_registered_chart_and_marks_current() {
+    let markup = chart_jump_markup(Chart::Calendar);
+    assert!(markup.contains(r#"class="chart-jump""#));
+    assert!(markup.contains(r#"aria-label="Jump to chart""#));
+    assert!(markup.contains(r#"<option value="data-card">Today's Ridership</option>"#));
+    assert!(markup.contains(r#"<option value="calendar" selected>Daily Total Ridership</option>"#));
+    assert!(
+        markup.contains(r#"<option value="commute-casual">Commute vs Casual by Weekday</option>"#)
+    );
+}
+
+#[test]
 fn equal_percentile_boundaries_never_leave_values_unclassified() {
     let summary = RangeSummary {
         calendar_days: 10,
@@ -282,6 +295,54 @@ fn text_date_controls_snap_and_recover_when_cleared() {
     assert!(CLIENT_SCRIPT.contains("GSAP.fromTo"));
 }
 
+#[test]
+fn client_script_supports_direct_chart_selection() {
+    assert!(CLIENT_SCRIPT.contains("const chartJump"));
+    assert!(CLIENT_SCRIPT.contains("chartJump?.addEventListener('change'"));
+    assert!(CLIENT_SCRIPT.contains("chartJump.value = activeChart"));
+}
+
+#[test]
+fn charts_are_configured_to_fill_available_width() {
+    assert!(STYLE.contains(".data-card-wrap{width:100%}"));
+    assert!(STYLE.contains(".d3-line-svg{display:block;width:100%"));
+    assert!(CLIENT_SCRIPT.contains("window.addEventListener('resize'"));
+}
+
+#[test]
+fn calendar_cells_are_always_square() {
+    // Square cells: one shared `cell` size drives both rect dimensions, the
+    // missing-cross diagonals, and the vertical pitch — width and height must
+    // never be independent variables.
+    assert!(!CLIENT_SCRIPT.contains("cellWidth"));
+    assert!(!CLIENT_SCRIPT.contains("cellHeight"));
+    assert!(CLIENT_SCRIPT.contains("const cell = 22"));
+    assert!(CLIENT_SCRIPT.contains(".attr('width', cell).attr('height', cell)"));
+    assert!(CLIENT_SCRIPT.contains("d.weekday * (cell + gap)"));
+    assert!(CLIENT_SCRIPT.contains("7 * cell + 6 * gap"));
+}
+
+#[test]
+fn line_chart_insets_edge_points_and_uses_translucent_fill() {
+    let dataset = fixture_dataset();
+    let range = DateRange {
+        start: dataset.min_date,
+        end: dataset.max_date,
+    };
+    let summary = summarise(&dataset, range);
+    let markup = line_chart_markup(&summary);
+    assert!(markup.contains(r#"x="84.0""#));
+    assert!(markup.contains(r#"x="872.0""#));
+    assert!(CLIENT_SCRIPT.contains("xInset = 18"));
+    assert!(CLIENT_SCRIPT.contains("right = 10"));
+    assert!(CLIENT_SCRIPT.contains("viewport?.width"));
+    assert!(CLIENT_SCRIPT.contains("height * Math.max"));
+    assert!(CLIENT_SCRIPT.contains("renderLine(false)"));
+    assert!(CLIENT_SCRIPT.contains("left + xInset"));
+    assert!(CLIENT_SCRIPT.contains("left + plotWidth - xInset"));
+    assert!(STYLE.contains(".series.commute,.series.casual{fill-opacity:.18}"));
+}
+
 #[tokio::test]
 async fn chart_api_returns_rust_computed_payload() {
     let dataset = fixture_dataset();
@@ -335,6 +396,30 @@ async fn home_page_renders_failure_view_without_dataset() {
     let html = String::from_utf8_lossy(&body);
     assert!(status.is_success() || status == topcoat::router::StatusCode::OK);
     assert!(html.contains("The source data could not be loaded."));
+}
+
+#[tokio::test]
+async fn home_page_links_code_and_data_sources() {
+    let request = topcoat::router::Request::builder()
+        .uri("/")
+        .body(topcoat::router::Body::empty())
+        .unwrap();
+    let state = AppState {
+        dataset: Arc::new(RwLock::new(Some(fixture_dataset()))),
+        client: Client::new(),
+    };
+    let response = crate::server::app_router(state).handle(request).await;
+    assert!(response.status().is_success());
+    let body = topcoat::router::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let html = String::from_utf8_lossy(&body);
+    assert!(html.contains(r#"class="source-links""#));
+    assert!(html.contains(r#"<title>GitHub</title>"#));
+    assert!(html.contains(r#"href="https://github.com/thecont1/metro-dash""#));
+    assert!(html.contains(r#"href="https://github.com/thecont1/namma-metro-ridership-tracker""#));
+    assert!(html.contains(r#"<span class="source-prefix">Source</span>"#));
+    assert!(!html.contains("Source data on GitHub ↗"));
 }
 
 #[test]

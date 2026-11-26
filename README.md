@@ -7,12 +7,12 @@ A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL rid
 ## What it shows
 
 1. **Today's Ridership** — the fare media breakdown for the latest published day (the end of your selected date range). The coloured proportion bar and payment boxes mirror the official BMRCL daily ridership page.
-2. **Daily Total Ridership** — a calendar heatmap. Each square is one day; the deeper the purple, the higher the total. Crossed-out squares are days BMRCL did not publish a total.
+2. **Daily Total Ridership** — a calendar heatmap. Each cell is one day; the deeper the purple, the higher the total. Crossed-out cells are days BMRCL did not publish a total.
 3. **Commute vs Casual by Weekday** — average journeys by day of week. *Commute* riders use Smart Card or NCMC (closed-loop fare media); *Casual* riders use Token, QR, or Group tickets.
 
 ## How to use it
 
-- Move between charts with the **Previous / Next** buttons, the left/right arrow keys, or a swipe.
+- Move between charts with the **Previous / Next** buttons, the chart jump menu, the left/right arrow keys, or a swipe.
 - Change the date range by dragging the **From / To** sliders or by typing/selecting dates.
 - Use the one-click filters (**Last 3 months**, **Last 6 months**, etc.) to jump to common ranges. The calendar defaults to **Last 6 months** when you open it.
 - Refreshing the page resets the app to the homepage and the latest datapoint.

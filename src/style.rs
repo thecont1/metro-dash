@@ -62,11 +62,20 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
      cannot push a viewport scrollbar. When short, allow the shell
      to grow past 100vh so users can keep reading. */
 }
-.site-header{display:grid;grid-template-columns:1fr auto;align-items:flex-end;gap:24px;padding-bottom:10px;border-bottom:2px solid var(--ink)}
-.site-header h1{font-family:var(--font-body);font-size:clamp(1.6rem,3.3vw,2.8rem);font-weight:900;letter-spacing:-.035em;line-height:.95;margin:0;max-width:18ch}
-.site-header .subtitle{font-family:var(--font-display);font-style:italic;font-weight:300;font-size:clamp(.95rem,1.4vw,1.15rem);line-height:1.35;color:#000000a6;max-width:55ch;margin:.35rem 0 0}
-.source-link{align-self:flex-start;font-family:var(--font-header);font-weight:700;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);text-decoration:none;border:1px solid var(--ink);padding:.6rem .8rem;min-height:24px;display:inline-flex;align-items:center;background:transparent}
-.source-link:hover{background:var(--ink);color:var(--paper)}
+.site-header{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"eyebrow eyebrow" "title source" "subtitle subtitle";column-gap:24px;padding-bottom:10px;border-bottom:2px solid var(--ink)}
+.site-header>.eyebrow{grid-area:eyebrow}
+.site-header h1{grid-area:title;font-family:var(--font-body);font-size:clamp(1.6rem,3.3vw,2.8rem);font-weight:900;letter-spacing:-.035em;line-height:.95;margin:0;max-width:18ch}
+.site-header .subtitle{grid-area:subtitle;font-family:var(--font-display);font-style:italic;font-weight:300;font-size:clamp(.95rem,1.4vw,1.15rem);line-height:1.35;color:#000000a6;max-width:55ch;margin:.35rem 0 0}
+.source-links{grid-area:source;align-self:center;justify-self:end;display:inline-flex;align-items:center;gap:.45rem;min-height:24px;border:1px solid var(--ink);padding:.6rem .8rem;background:transparent;color:var(--ink);font-family:var(--font-header);font-weight:700;font-size:.72rem;letter-spacing:.1em;line-height:1;text-transform:uppercase;white-space:nowrap}
+.source-links svg{display:block;width:1rem;height:1rem;fill:currentColor;flex:0 0 auto}
+.source-links a{color:inherit;text-decoration:none}
+.source-links a:hover{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.source-links a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.source-separator{color:var(--muted-2)}
+@media (max-width:480px){
+  .site-header{grid-template-columns:1fr;grid-template-areas:"eyebrow" "title" "subtitle" "source"}
+  .source-links{justify-self:start;margin-top:.6rem}
+}
 
 /* ---------- Prepare band (inside chart-stage) ---------- */
 /* The prepare band renders as a control row: From-input + slider
@@ -98,23 +107,25 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-stage{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .stage-topline{display:flex;justify-content:space-between;align-items:baseline;gap:20px;margin-bottom:4px}
 .eyebrow .chart-index,.eyebrow .chart-total{color:var(--ink)}
-.chart-title-row{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:2px 0 0}
+.chart-title-row{display:flex;justify-content:space-between;align-items:center;gap:18px;row-gap:10px;flex-wrap:wrap;margin:2px 0 0}
 .chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0}
 .chart-deck{font-family:var(--font-display);font-style:italic;font-size:.95rem;color:var(--ink-muted);max-width:62ch;margin:0 0 8px}
 .chart-shell{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
 .chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .chart-shell.has-render{position:relative}
-.chart-pager{display:flex;gap:16px}
+.chart-pager{display:flex;gap:16px;align-items:center;justify-content:flex-end;flex-wrap:wrap;min-width:0}
 .chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:8px 4px;min-height:24px;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
 .chart-pager .arrow-button[aria-disabled="false"]:hover{color:var(--accent)}
 .chart-pager .arrow-button[aria-disabled="true"]{color:var(--muted-2);cursor:not-allowed;pointer-events:none}
+.chart-pager .chart-jump{width:clamp(8rem,22vw,14rem);max-width:100%;min-height:32px;border:1px solid var(--ink);border-radius:2px;background:var(--paper);color:var(--ink);font:800 .68rem/1 var(--font-body);letter-spacing:.06em;text-transform:uppercase;padding:.55rem .7rem;cursor:pointer}
+.chart-pager .chart-jump:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .chart-pager .arrow-glyph{font-size:1.2rem;font-weight:300;line-height:.5}
 .chart-pager .arrow-glyph-label{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;line-height:1}
 
 /* Calendar scroll container — fixed 7-row height, hides scrollbar. */
 .calendar-scroll-wrap{overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:none;-ms-overflow-style:none}
 .calendar-scroll-wrap::-webkit-scrollbar{display:none}
-.calendar-scroll-wrap .d3-calendar-svg{display:block;height:220px;width:auto;max-width:none}
+.calendar-scroll-wrap .d3-calendar-svg{display:block;max-width:none}
 
 /* SSR fallback for the calendar — must match the D3 viewbox metrics so
    the .d3-enhanced clip is the only switch between SSR and D3 scenes.
@@ -123,7 +134,10 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .calendar-wrap,.line-chart-wrap{flex:1 1 auto;min-height:0}
 .d3-scene{flex:0 1 auto;min-height:0;min-width:0}
 .d3-scene[hidden]{display:none}
-.d3-calendar-svg,.d3-line-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
+.d3-line-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
+.d3-line-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px}
+.d3-line-scene .d3-line-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
+.d3-line-scene .d3-insight{flex:0 0 auto}
 
 /* D3 calendar layout — frozen weekday column + scrollable SVG */
 .calendar-layout{display:flex;gap:4px;align-items:stretch;width:100%}
@@ -167,6 +181,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .series{stroke-width:3;fill:none}
 .series.commute,.point.commute,.whisker.commute{stroke:var(--accent);fill:var(--accent)}
 .series.casual,.point.casual,.whisker.casual{stroke:var(--gold);fill:var(--gold)}
+.series.commute,.series.casual{fill-opacity:.18}
 .point{stroke:var(--paper);stroke-width:3;cursor:pointer}
 .point-hit{cursor:pointer}
 .point-hit:focus{outline:none}
@@ -235,9 +250,9 @@ th{color:var(--muted);font-size:.62rem;letter-spacing:.06em;text-transform:upper
 
 /* Fallback: when the viewport is too short to fit everything, the
    whole shell becomes scrollable. This is the ONLY scroll the page
-   ever uses, and it kicks in below the budget breakpoint (~820px tall
+   ever uses, and it kicks in below the budget breakpoint (~835px tall
    for the 1280-wide shell, or below 880px wide for narrower devices). */
-@media (max-height:820px),(max-width:880px){
+@media (max-height:835px),(max-width:880px){
   html,body{height:auto;overflow:auto}
   .site-shell{height:auto;min-height:100vh}
 }
@@ -255,7 +270,7 @@ body.chart-data-card .chart-shell{justify-content:center}
 body.chart-data-card .d3-datacard-scene{position:absolute;pointer-events:none;width:0;height:0;overflow:visible}
 body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap{display:none}
 body.chart-data-card .legend,body.chart-commute-casual .legend{display:none}
-.data-card-wrap{max-width:1100px;margin:0 auto;width:100%}
+.data-card-wrap{width:100%}
 .data-card-inner{background:var(--paper);border:1px solid var(--hairline);border-radius:12px;padding:28px 32px;display:flex;flex-direction:column;gap:24px}
 .dc-top-story{display:flex;flex-direction:column;gap:20px}
 .dc-bottom-story{display:flex;flex-direction:column;gap:12px}

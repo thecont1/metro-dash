@@ -20,6 +20,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const chartEyebrow = document.querySelector('.stage-topline .eyebrow');
   const priorButton = document.querySelector('.arrow-button.prev');
   const nextButton = document.querySelector('.arrow-button.next');
+  const chartJump = document.querySelector('.chart-jump');
   const payloadNode = document.querySelector('#chart-data');
   const computeNote = document.getElementById('compute-note');
   if (!startPicker || !endPicker || !startSlider || !endSlider || !payloadNode || !chartShell) return;
@@ -30,6 +31,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   let payloadDirty = false;
   let rangeTimer;
+  let chartResizeTimer;
   // Compute-core lifecycle: 'pending' until the wasm boot settles, 'ready'
   // once chartPayload can answer locally, 'server' when the page ships no
   // wasm assets (self-hosted build → /api/chart computes), 'failed' when
@@ -39,6 +41,11 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
   const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true };
   const chartOrder = ['data-card', 'calendar', 'commute-casual'];
+  if (chartJump) {
+    chartJump.querySelectorAll('option').forEach((option) => {
+      if (!chartRegistry[option.value]) option.remove();
+    });
+  }
 
   const SS_KEY = 'metroDashState';
   // Reset to the latest datapoint on every page load; sessionStorage is only
@@ -239,6 +246,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       nextButton.setAttribute('aria-label', nextDef ? `Next chart: ${nextDef.title}` : 'Next chart');
       setDisabled(nextButton, nextSlug === null);
     }
+    if (chartJump) chartJump.value = activeChart;
     document.body.className = document.body.className
       .replace(/chart-\S+/g, '')
       .trim() + ' chart-' + activeChart;
@@ -327,7 +335,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       const scene = ensureScene('d3-calendar-scene');
       const cells = payload.charts.calendar.cells;
       const maxCol = D3.max(cells, d => d.col) || 0;
-      const cell = 24, gap = 2, top = 28, monthGap = 6;
+      const top = 28, rightPad = 4, bottomPad = 12;
       // Count how many month boundaries exist to compute total width
       const monthBoundaries = new Set();
       let prevMonth = null;
@@ -337,8 +345,6 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
         prevMonth = m;
       });
       const totalCols = maxCol + 1;
-      const width = totalCols * (cell + gap) + monthBoundaries.size * monthGap + 24;
-      const height = 220;
 
       // Layout: frozen weekday labels on the left + scrollable calendar
       let layout = scene.select('.calendar-layout');
@@ -351,9 +357,24 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
         layout.append('div').attr('class', 'calendar-scroll-wrap');
       }
       const wrap = layout.select('.calendar-scroll-wrap');
+      // Fixed-size square cells; the scroll wrap handles overflow so the
+      // user can scroll horizontally to the beginning or end of the range.
+      const cell = 22, gap = 2, monthGap = 6;
+      const boundaryWidth = monthBoundaries.size * monthGap;
+      const columnGapWidth = Math.max(0, totalCols - 1) * gap;
+      const width = totalCols * cell + columnGapWidth + boundaryWidth + rightPad;
+      const height = top + 7 * cell + 6 * gap + bottomPad;
+      layout.select('.weekday-fixed')
+        .style('gap', `${gap}px`)
+        .style('padding-top', `${top}px`);
+      layout.selectAll('.weekday-fixed span')
+        .style('height', `${cell}px`)
+        .style('line-height', `${cell}px`);
 
       const svg = wrap.selectAll('svg').data([null]).join('svg')
         .attr('class', 'd3-calendar-svg')
+        .attr('width', width)
+        .attr('height', height)
         .attr('viewBox', `0 0 ${width} ${height}`)
         .attr('role', 'img')
         .attr('aria-label', 'Daily ridership calendar heatmap, enhanced with D3');
@@ -439,7 +460,16 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
         .transition().duration(canAnimate && animate ? 260 : 0)
         .attr('opacity', 1)
         .attr('transform', d => `translate(${xPos(d)},${top + d.weekday * (cell + gap)})`);
-      joined.select('rect').transition().duration(canAnimate && animate ? 260 : 0).attr('fill', colourFor);
+      joined.select('rect')
+        .attr('width', cell)
+        .attr('height', cell)
+        .transition().duration(canAnimate && animate ? 260 : 0).attr('fill', colourFor);
+      joined.select('.missing-cross.a')
+        .attr('x2', cell - 2)
+        .attr('y2', cell - 2);
+      joined.select('.missing-cross.b')
+        .attr('x1', cell - 2)
+        .attr('y2', cell - 2);
       joined.selectAll('.missing-cross').attr('display', d => d.missing ? null : 'none');
 
       // Structured HTML tooltip for calendar cells
@@ -508,18 +538,23 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   const renderLine = (animate = true) => {
     if (!D3) return;
     const scene = ensureScene('d3-line-scene');
-    const width = 900, height = 410, left = 66, right = 28, top = 24, bottom = 66;
-    const plotWidth = width - left - right;
-    const plotHeight = height - top - bottom;
+    const height = 410, left = 66, right = 10, top = 24, bottom = 66, xInset = 18;
     const allPoints = payload.charts.commuteCasual.series.flatMap(series => series.points);
     const maxValue = Math.max(1, D3.max(allPoints, p => (p.mean || 0) + (p.standardDeviation || 0)) || 1);
-    const x = D3.scalePoint().domain(payload.charts.commuteCasual.weekdays.map(d => d.index)).range([left, left + plotWidth]);
-    const y = D3.scaleLinear().domain([0, maxValue]).nice(4).range([top + plotHeight, top]);
     const svg = scene.selectAll('svg').data([null]).join('svg')
       .attr('class', 'd3-line-svg line-chart')
-      .attr('viewBox', `0 0 ${width} ${height}`)
       .attr('role', 'img')
       .attr('aria-label', 'Average daily ridership by weekday, enhanced with D3');
+    scene.selectAll('.d3-insight').data(payload.charts.commuteCasual.insight ? [payload.charts.commuteCasual.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const viewport = svg.node()?.getBoundingClientRect();
+    const width = height * Math.max(1, viewport?.width || 900) / Math.max(1, viewport?.height || 410);
+    svg.attr('viewBox', `0 0 ${width} ${height}`);
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const x = D3.scalePoint().domain(payload.charts.commuteCasual.weekdays.map(d => d.index)).range([left + xInset, left + plotWidth - xInset]);
+    const y = D3.scaleLinear().domain([0, maxValue]).nice(4).range([top + plotHeight, top]);
 
     svg.selectAll('.d3-grid-line').data(y.ticks(4)).join('line')
       .attr('class', 'd3-grid-line')
@@ -541,7 +576,6 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const series = svg.selectAll('.d3-series').data(payload.charts.commuteCasual.series, d => d.key).join('g').attr('class', d => `d3-series ${d.key}`);
     series.selectAll('.d3-series-path').data(d => [d]).join('path')
       .attr('class', d => `d3-series-path series ${d.key}`)
-      .attr('fill', 'none')
       .transition().duration(canAnimate && animate ? 320 : 0)
       .attr('d', d => line(d.points));
 
@@ -577,9 +611,6 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       .attr('x', width - 210)
       .attr('y', d => d.key === 'commute' ? 25 : 48)
       .text(d => d.label);
-    scene.selectAll('.d3-insight').data(payload.charts.commuteCasual.insight ? [payload.charts.commuteCasual.insight] : []).join('p')
-      .attr('class', 'd3-insight insight')
-      .text(d => d);
     choreograph(scene.node());
   };
 
@@ -790,6 +821,17 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const chart = link.dataset.chart;
     if (!chart || !chartRegistry[chart]) return;
     navigateToChart(chart);
+  });
+  chartJump?.addEventListener('change', () => {
+    const chart = chartJump.value;
+    if (!chart || !chartRegistry[chart]) return;
+    navigateToChart(chart);
+  });
+  window.addEventListener('resize', () => {
+    clearTimeout(chartResizeTimer);
+    chartResizeTimer = setTimeout(() => {
+      if (activeChart === 'commute-casual') renderLine(false);
+    }, 120);
   });
   // Day cycling buttons on the data card — change the end date by one
   // available date. Uses event delegation because renderDataCard rebuilds
