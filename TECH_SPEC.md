@@ -182,7 +182,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 ### Calendar heatmap
 
 - SSR: CSS grid of `<button>` cells with percentile-based band classes
-- D3: SVG with animated cell transitions, horizontal scroll for wide ranges, month separator lines
+- D3: SVG with animated cell transitions, fixed 22px square cells, horizontal scrolling within the chart when the range exceeds the available width, and month separator lines
 - Percentile bands: 10 buckets from `< p2` to `> p98`, each with a CSS custom property `--band-N`
 - Missing days: crossed cells with diagonal lines
 - Default range when opened: **Last 6 months**
@@ -190,7 +190,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 ### Commute vs Casual by Weekday
 
 - SSR: Static SVG with two series (commute, casual)
-- D3: Animated area/line drawing, interactive points with tooltips
+- D3: Animated area/line drawing with a viewport-aware viewBox so the plot fills the available width, plus interactive points with tooltips
 - Insight line: auto-generated text describing peak days for each series
 
 ### Unusual for its Weekday?

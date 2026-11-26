@@ -44,6 +44,25 @@ with sync_playwright() as playwright:
 
     page.goto(f"{BASE}/", wait_until="networkidle")
     check(page.get_by_role("heading", name="NammaMetro in Charts").is_visible(), "site heading is not visible")
+    check(page.locator(".source-links svg").count() == 1, "GitHub logo is missing from source links")
+    check(
+        page.get_by_role("link", name="NammaMetro in Charts source code on GitHub").get_attribute("href")
+        == "https://github.com/thecont1/metro-dash",
+        "source code link does not point at metro-dash",
+    )
+    check(
+        page.get_by_role("link", name="Namma Metro ridership source data on GitHub").get_attribute("href")
+        == "https://github.com/thecont1/namma-metro-ridership-tracker",
+        "source data link does not point at the ridership tracker",
+    )
+    header_alignment = page.evaluate(
+        """() => {
+          const title = document.querySelector('.site-header h1').getBoundingClientRect();
+          const source = document.querySelector('.source-links').getBoundingClientRect();
+          return (title.top + title.height / 2) - (source.top + source.height / 2);
+        }"""
+    )
+    check(abs(header_alignment) <= 2, f"source links are not vertically aligned with the site title: {header_alignment}px")
     check(page.get_by_role("heading", name="Today's Ridership").is_visible(), "default data-card chart is not visible")
     check(page.locator(".arrow-button.prev").get_attribute("aria-disabled") == "true", "previous boundary is focusable")
     check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "false", "next chart is not focusable")
@@ -54,6 +73,13 @@ with sync_playwright() as playwright:
     check(page.locator("#chart-data").count() == 1, "embedded Rust chart payload is missing")
     check(page.locator(".chart-shell.d3-enhanced").count() == 1, "D3 enhancement did not initialise")
     check(page.locator(".d3-datacard-scene").count() == 1, "D3 data-card scene is missing")
+    data_card_widths = page.evaluate(
+        """() => ({
+          shell: document.querySelector('.chart-shell').getBoundingClientRect().width,
+          card: document.querySelector('.data-card-wrap').getBoundingClientRect().width,
+        })"""
+    )
+    check(abs(data_card_widths["shell"] - data_card_widths["card"]) <= 1.5, "data card does not fill the chart shell width")
     check(state(page).get("chart") == "data-card", "initial session state is not the data card")
     check("?" not in page.url, "URL gained query params")
 
@@ -66,6 +92,52 @@ with sync_playwright() as playwright:
     page.locator(".d3-calendar-scene").wait_for(state="visible", timeout=10000)
     check(page.locator(".d3-datacard-scene").get_attribute("hidden") is not None, "data-card scene is not hidden")
     page.wait_for_function("() => document.querySelectorAll('.d3-cell').length > 150", timeout=10000)
+    cell_dims = page.evaluate(
+        """() => [...document.querySelectorAll('.d3-cell rect')].slice(0, 20).map(r => {
+          const b = r.getBoundingClientRect();
+          return {w: b.width, h: b.height};
+        })"""
+    )
+    check(len(cell_dims) == 20, "calendar cells are not rendered as rects")
+    check(all(abs(d["w"] - d["h"]) <= 0.5 for d in cell_dims), f"calendar cells are not square: {cell_dims[0]}")
+    check(all(abs(d["w"] - 22) <= 1 for d in cell_dims), f"calendar cells are not the fixed 22px size: {cell_dims[0]}")
+
+    # Nine months must fit in one frame without scrolling — the cell size
+    # was chosen so ~39 week-columns plus month gaps fit the desktop wrap.
+    page.click('[data-preset="last-9-months"]')
+    page.wait_for_timeout(800)
+    nine_month_fit = page.evaluate(
+        """() => {
+          const wrap = document.querySelector('.calendar-scroll-wrap');
+          return {client: wrap.clientWidth, scroll: wrap.scrollWidth};
+        }"""
+    )
+    check(nine_month_fit["scroll"] <= nine_month_fit["client"] + 2, f"9-month range does not fit in one frame: {nine_month_fit}")
+
+    # Longer ranges must remain internally scrollable: jumping to the end
+    # and back to the beginning changes scrollLeft.
+    page.click('[data-preset="use-all-data"]')
+    page.wait_for_timeout(800)
+    calendar_geometry = page.evaluate(
+        """() => {
+          const wrap = document.querySelector('.calendar-scroll-wrap');
+          const svg = document.querySelector('.d3-calendar-svg').getBoundingClientRect();
+          return {wrapClient: wrap.clientWidth, wrapScroll: wrap.scrollWidth, svgW: svg.width};
+        }"""
+    )
+    check(calendar_geometry["wrapScroll"] > calendar_geometry["wrapClient"], "calendar is not internally scrollable for long ranges")
+    check(abs(calendar_geometry["svgW"] - calendar_geometry["wrapScroll"]) <= 2, "calendar SVG does not size to its content")
+    scroll_test = page.evaluate(
+        """() => {
+          const wrap = document.querySelector('.calendar-scroll-wrap');
+          wrap.scrollLeft = wrap.scrollWidth;
+          const end = wrap.scrollLeft;
+          wrap.scrollLeft = 0;
+          return {end, start: wrap.scrollLeft};
+        }"""
+    )
+    check(scroll_test["end"] > 100, "calendar cannot scroll to the end of the range")
+    check(scroll_test["start"] == 0, "calendar cannot scroll back to the beginning")
     check(page.locator(".d3-cell.missing").count() > 0, "missing calendar cells are absent")
     calendar_state = state(page)
     check(calendar_state.get("chart") == "calendar", "session state did not follow navigation")
@@ -81,6 +153,61 @@ with sync_playwright() as playwright:
     page.get_by_role("heading", name="Commute vs Casual by Weekday").wait_for(state="visible", timeout=10000)
     page.locator(".d3-line-scene").wait_for(state="visible", timeout=10000)
     page.wait_for_function("() => document.querySelectorAll('.d3-point-group').length === 14", timeout=10000)
+    page.wait_for_timeout(350)
+    line_widths = page.evaluate(
+        """() => ({
+          shell: document.querySelector('.chart-shell').getBoundingClientRect().width,
+          svg: document.querySelector('.d3-line-svg').getBoundingClientRect().width,
+        })"""
+    )
+    check(abs(line_widths["shell"] - line_widths["svg"]) <= 1.5, "line chart does not fill the chart shell width")
+    line_plot_widths = page.evaluate(
+        """() => {
+          const svg = document.querySelector('.d3-line-svg').getBoundingClientRect();
+          const grid = [...document.querySelectorAll('.d3-grid-line')].map(n => n.getBoundingClientRect());
+          const left = Math.min(...grid.map(r => r.left));
+          const right = Math.max(...grid.map(r => r.right));
+          return {ratio: (right - left) / svg.width, rightGap: svg.right - right};
+        }"""
+    )
+    check(line_plot_widths["ratio"] >= 0.85, f"line plot is letterboxed inside the SVG: {line_plot_widths['ratio']}")
+    check(line_plot_widths["rightGap"] <= 40, f"line plot leaves too much right whitespace: {line_plot_widths['rightGap']}px")
+    page.set_viewport_size({"width": 1000, "height": 900})
+    page.wait_for_timeout(350)
+    resized_line_plot_widths = page.evaluate(
+        """() => {
+          const svg = document.querySelector('.d3-line-svg').getBoundingClientRect();
+          const grid = [...document.querySelectorAll('.d3-grid-line')].map(n => n.getBoundingClientRect());
+          const left = Math.min(...grid.map(r => r.left));
+          const right = Math.max(...grid.map(r => r.right));
+          return {ratio: (right - left) / svg.width, rightGap: svg.right - right};
+        }"""
+    )
+    check(resized_line_plot_widths["ratio"] >= 0.85, "line plot does not fill the width after viewport resize")
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.wait_for_timeout(350)
+    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "false", "next chart is not focusable after the weekday chart")
+
+    line_paint = page.evaluate(
+        """() => {
+          const path = document.querySelector('.d3-series-path.commute');
+          const style = getComputedStyle(path);
+          return {fillOpacity: style.fillOpacity, strokeOpacity: style.strokeOpacity};
+        }"""
+    )
+    check(float(line_paint["fillOpacity"]) < 1, "commute fill is not translucent")
+    check(float(line_paint["strokeOpacity"]) == 1, "commute line is not solid")
+    edge_gap = page.evaluate(
+        """() => {
+          const xOf = g => parseFloat((g.getAttribute('transform') || 'translate(0,0)').slice(10));
+          const groups = [...document.querySelectorAll('.d3-point-group')];
+          const minX = Math.min(...groups.map(xOf));
+          const edgeLabels = groups.filter(g => xOf(g) < minX + 1).map(g => g.querySelector('text').getBoundingClientRect());
+          const yRight = Math.max(...[...document.querySelectorAll('.d3-y-label')].map(n => n.getBoundingClientRect().right));
+          return Math.min(...edgeLabels.map(r => r.left - yRight));
+        }"""
+    )
+    check(edge_gap >= 4, f"edge value labels are too close to y-axis labels: {edge_gap}px")
 
     page.locator(".d3-point-group").first.focus()
     check(page.locator("#chart-tooltip").is_visible(), "point focus tooltip is not visible")
@@ -122,6 +249,7 @@ with sync_playwright() as playwright:
     page.locator(".d3-waterfall-group").first.focus()
     check(page.locator("#chart-tooltip").is_visible(), "waterfall component focus tooltip is not visible")
     check("delta" in page.locator("#chart-tooltip").text_content(), "waterfall tooltip lacks delta")
+
 
     # Range change through the date picker recomputes the payload. The target
     # end date comes from the loaded dataset's own available dates, so the
@@ -192,6 +320,13 @@ with sync_playwright() as playwright:
     check(not mobile_errors, f"mobile console errors: {'; '.join(mobile_errors)}")
     mobile_path = Path("/tmp/metro-final-mobile.png")
     mobile.screenshot(path=str(mobile_path), full_page=True)
+
+    compact = browser.new_page(viewport={"width": 320, "height": 760})
+    compact.goto(f"{BASE}/", wait_until="networkidle")
+    compact_source = compact.locator(".source-links").bounding_box()
+    check(compact_source is not None, "source links are missing on compact viewport")
+    check(compact_source["x"] + compact_source["width"] <= 320, "source links overflow compact viewport")
+    compact.close()
 
     browser.close()
     print({"ok": True, "errors": errors, "wasm": has_wasm, "desktop": str(desktop), "mobile": str(mobile_path)})
