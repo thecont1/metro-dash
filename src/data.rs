@@ -158,6 +158,29 @@ impl NcmcShareWeek {
     }
 }
 
+pub const QR_PROVIDER_CATEGORIES: [(&str, &str); 4] = [
+    ("qr-namma", "Namma Metro"),
+    ("qr-whatsapp", "WhatsApp"),
+    ("qr-paytm", "Paytm"),
+    ("qr-ondc", "ONDC"),
+];
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QrMixMonth {
+    pub month: NaiveDate,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub providers: [f64; 4],
+    pub provider_total: f64,
+    pub parent_qr_total: f64,
+}
+
+impl QrMixMonth {
+    pub fn has_mix(&self) -> bool {
+        self.complete_days > 0 && self.provider_total > 0.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaselineStatus {
     High,
@@ -918,4 +941,58 @@ pub fn ncmc_share_series(dataset: &Dataset, range: DateRange) -> Vec<NcmcShareWe
         cursor += Duration::days(7);
     }
     weeks
+}
+
+fn qr_provider_components(record: &RidershipRecord) -> Option<[f64; 4]> {
+    Some([
+        record.qr_namma?,
+        record.qr_whatsapp?,
+        record.qr_paytm?,
+        record.qr_ondc?,
+    ])
+}
+
+/// Aggregate QR provider counts by month. Because provider splits do not
+/// always reconcile with the parent QR total, shares use the provider sum
+/// while the parent total is retained separately for the scale strip.
+pub fn qr_mix_series(dataset: &Dataset, range: DateRange) -> Vec<QrMixMonth> {
+    let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+        .expect("valid month start");
+    let mut months = Vec::new();
+    while cursor <= range.end {
+        let next_month = cursor
+            .checked_add_months(Months::new(1))
+            .expect("valid next month");
+        let month_end = (next_month - Duration::days(1)).min(range.end);
+        let rows: Vec<&RidershipRecord> = dataset
+            .records
+            .iter()
+            .filter(|record| record.date >= cursor.max(range.start) && record.date <= month_end)
+            .collect();
+        let mut providers = [0.0; 4];
+        let mut complete_days = 0;
+        let mut parent_qr_total = 0.0;
+        for record in &rows {
+            if let Some(values) = qr_provider_components(record) {
+                complete_days += 1;
+                for (index, value) in values.iter().enumerate() {
+                    providers[index] += value;
+                }
+                if let Some(parent) = raw_parent_value(record, dataset.field_mapping.qr.as_deref())
+                {
+                    parent_qr_total += parent;
+                }
+            }
+        }
+        months.push(QrMixMonth {
+            month: cursor,
+            published_days: rows.len(),
+            complete_days,
+            providers,
+            provider_total: providers.iter().sum(),
+            parent_qr_total,
+        });
+        cursor = next_month;
+    }
+    months
 }

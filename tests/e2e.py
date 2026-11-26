@@ -68,7 +68,7 @@ with sync_playwright() as playwright:
     check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "false", "next chart is not focusable")
     chart_jump = page.locator(".chart-jump")
     check(chart_jump.count() == 1, "chart jump select is missing")
-    check(chart_jump.locator("option").count() == 7, "chart jump select does not list every chart")
+    check(chart_jump.locator("option").count() == 8, "chart jump select does not list every chart")
     check(chart_jump.input_value() == "data-card", "chart jump select is not synced to the active chart")
     check(page.locator("#chart-data").count() == 1, "embedded Rust chart payload is missing")
     check(page.locator(".chart-shell.d3-enhanced").count() == 1, "D3 enhancement did not initialise")
@@ -267,11 +267,19 @@ with sync_playwright() as playwright:
     page.locator(".d3-ncmc-scene").wait_for(state="visible", timeout=10000)
     page.wait_for_function("() => document.querySelectorAll('.d3-ncmc-point').length > 0", timeout=10000)
     check(page.locator(".mix-coverage-label").count() >= 2, "NCMC coverage labels are missing")
-    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
-
     page.locator(".d3-ncmc-point").first.focus()
     check(page.locator("#chart-tooltip").is_visible(), "NCMC point focus tooltip is not visible")
     check("Smart Card + NCMC" in page.locator("#chart-tooltip").text_content(), "NCMC tooltip lacks grouping")
+
+    page.evaluate("() => document.activeElement.blur()")
+    page.keyboard.press("ArrowRight")
+    page.get_by_role("heading", name="Which QR Channels Make Up QR Use?").wait_for(state="visible", timeout=10000)
+    page.locator(".d3-qr-scene").wait_for(state="visible", timeout=10000)
+    page.wait_for_function("() => document.querySelectorAll('.d3-qr-segment').length > 0", timeout=10000)
+    check(page.locator(".mix-coverage-label").count() >= 1, "QR coverage labels are missing")
+    check(page.locator(".arrow-button.next").get_attribute("aria-disabled") == "true", "next boundary is focusable on last chart")
+    page.locator(".d3-qr-segment").first.focus()
+    check("provider-sum QR" in page.locator("#chart-tooltip").text_content(), "QR tooltip lacks provider-sum context")
 
 
     # Range change through the date picker recomputes the payload. The target
@@ -308,7 +316,7 @@ with sync_playwright() as playwright:
         f"() => {{ const s = JSON.parse(sessionStorage.getItem('metroDashState') || '{{}}'); return s.end === '{target_end}'; }}",
         timeout=10000,
     )
-    check(state(page).get("chart") == "ncmc-share", "range change reset the active chart")
+    check(state(page).get("chart") == "qr-channel-mix", "range change reset the active chart")
 
     # On the static site the WASM compute core answers every range change
     # locally; /api/* must stay untouched. The self-hosted server has no

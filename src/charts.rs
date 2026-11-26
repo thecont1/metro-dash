@@ -5,7 +5,7 @@ use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
     BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, NcmcShareWeek,
-    RangeSummary, RidershipRecord, WeekdayBaselinePoint, WeekdayMetric,
+    QrMixMonth, RangeSummary, RidershipRecord, WeekdayBaselinePoint, WeekdayMetric,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,6 +17,7 @@ pub enum Chart {
     ComponentWaterfall,
     FareMediaMix,
     NcmcShare,
+    QrMix,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -28,7 +29,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 7] = [
+pub static CHARTS: [ChartDefinition; 8] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -77,6 +78,13 @@ pub static CHARTS: [ChartDefinition; 7] = [
         title: "How is NCMC’s Share Changing?",
         deck: "Weekly NCMC share of Smart Cards + NCMC, with the NCMC count shown separately underneath.",
         method: "Weeks aggregate only days where both Smart Card and NCMC are present, so the share and count use the same evidence base. Complete/published day counts make uneven week coverage visible. Missing values are never zero-filled. This is fare-media arithmetic, not proof that Smart Card users converted to NCMC.",
+    },
+    ChartDefinition {
+        chart: Chart::QrMix,
+        slug: "qr-channel-mix",
+        title: "Which QR Channels Make Up QR Use?",
+        deck: "Monthly provider-level shares, with parent Total QR shown separately underneath.",
+        method: "Months aggregate days where all four QR provider fields are present. Shares use the provider sum because provider splits do not always reconcile with parent Total QR; the lower strip shows parent Total QR for the same complete days. Zero is treated as reported zero, while missing fields exclude the day. This describes aggregate channel mix, not individual app use.",
     },
 ];
 
@@ -788,6 +796,92 @@ fn signed_full(value: f64) -> String {
     } else {
         format_number_full(value)
     }
+}
+
+pub fn qr_mix_insight(months: &[QrMixMonth]) -> String {
+    let usable: Vec<&QrMixMonth> = months.iter().filter(|month| month.has_mix()).collect();
+    if usable.len() < 2 {
+        return "Not enough complete months in the selected range to compare QR channels."
+            .to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    let share =
+        |month: &QrMixMonth, index: usize| month.providers[index] / month.provider_total * 100.0;
+    format!(
+        "Namma Metro {:.1}% → {:.1}%; ONDC {:.1}% → {:.1}% of provider-sum QR.",
+        share(first, 0),
+        share(last, 0),
+        share(first, 3),
+        share(last, 3)
+    )
+}
+
+pub fn qr_mix_chart_markup(months: &[QrMixMonth]) -> String {
+    let mut html = String::from(r#"<div class="qr-ssr-wrap"><div class="qr-ssr-months">"#);
+    for month in months {
+        html.push_str(&format!(
+            r#"<div class="qr-ssr-month"><span class="qr-ssr-label">{}</span>"#,
+            month.month.format("%b ’%y")
+        ));
+        if month.has_mix() {
+            html.push_str(r#"<span class="qr-ssr-bar">"#);
+            for (index, (key, label)) in crate::data::QR_PROVIDER_CATEGORIES.iter().enumerate() {
+                let share = month.providers[index] / month.provider_total * 100.0;
+                html.push_str(&format!(
+                    r#"<i class="qr-segment qr-{key}" style="width:{share:.3}%" title="{}: {:.1}%"></i>"#,
+                    label, share
+                ));
+            }
+            html.push_str(r#"</span>"#);
+        } else {
+            html.push_str(r#"<span class="qr-ssr-gap">No complete provider days</span>"#);
+        }
+        html.push_str(&format!(
+            r#"<span class="qr-ssr-meta">{}/{}d · QR {}</span></div>"#,
+            month.complete_days,
+            month.published_days,
+            if month.has_mix() {
+                format_number_full(month.parent_qr_total)
+            } else {
+                "—".into()
+            }
+        ));
+    }
+    html.push_str(r#"</div><div class="mix-legend"><span><i class="mix-key qr-qr-namma"></i>Namma Metro</span><span><i class="mix-key qr-qr-whatsapp"></i>WhatsApp</span><span><i class="mix-key qr-qr-paytm"></i>Paytm</span><span><i class="mix-key qr-qr-ondc"></i>ONDC</span></div>"#);
+    html.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        qr_mix_insight(months)
+    ));
+    html.push_str(&qr_mix_table(months));
+    html.push_str("</div>");
+    html
+}
+
+fn qr_mix_table(months: &[QrMixMonth]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View QR channel data table</summary><div class="table-scroll"><table><caption>Monthly QR provider counts and shares</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Parent QR</th><th scope="col">Namma Metro</th><th scope="col">WhatsApp</th><th scope="col">Paytm</th><th scope="col">ONDC</th></tr></thead><tbody>"#,
+    );
+    for month in months {
+        let share = |index: usize| {
+            if month.has_mix() {
+                format!(
+                    "{:.1}%",
+                    month.providers[index] / month.provider_total * 100.0
+                )
+            } else {
+                "—".into()
+            }
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            month.month.format("%b %Y"), month.complete_days, month.published_days,
+            if month.has_mix() { format_number_full(month.parent_qr_total) } else { "—".into() },
+            share(0), share(1), share(2), share(3)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
 }
 
 pub fn ncmc_share_insight(weeks: &[NcmcShareWeek]) -> String {

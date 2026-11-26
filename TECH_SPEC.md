@@ -159,6 +159,7 @@ Two paths feed the same `Dataset` type:
 - `weekday_baseline_series()` computes a rolling same-weekday median and interquartile band from up to six earlier and six later published reports; the current day is excluded and at least four nearby reports are required
 - `fare_mix_series()` aggregates complete parent-component days by calendar month, preserves months with no usable observations as gaps, and never zero-fills missing components
 - `ncmc_share_series()` aggregates days with both Smart Card and NCMC into ISO weeks so count and share panels use the same evidence base
+- `qr_mix_series()` aggregates complete four-provider QR days by month; shares use provider sums while parent QR remains a separate scale measure because they do not always reconcile
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -173,6 +174,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 5. **Component waterfall (`component-waterfall`)** — Fare-media arithmetic contributions to the selected day's difference from its same-weekday reference
 6. **Fare-media mix (`fare-media-mix`)** — Monthly 100% share columns with observed absolute totals shown separately
 7. **NCMC share (`ncmc-share`)** — Weekly NCMC share of Smart Cards + NCMC with counts shown separately
+8. **QR channel mix (`qr-channel-mix`)** — Monthly provider-level shares with parent Total QR shown separately
 
 ### Adding a new chart
 
