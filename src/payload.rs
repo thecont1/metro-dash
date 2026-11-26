@@ -6,8 +6,9 @@ use crate::charts::{
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
-    FareMixMonth, RangeSummary, RidershipRecord, WeekdayBaselinePoint, component_waterfall,
-    fare_mix_series, last_n_months_range, record_index, summarise, weekday_baseline_series,
+    FareMixMonth, NcmcShareWeek, RangeSummary, RidershipRecord, WeekdayBaselinePoint,
+    component_waterfall, fare_mix_series, last_n_months_range, ncmc_share_series, record_index,
+    summarise, weekday_baseline_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -141,6 +142,30 @@ pub struct PayloadCharts {
     pub weekday_baseline: WeekdayBaselinePayload,
     pub component_waterfall: ComponentWaterfallPayload,
     pub fare_media_mix: FareMediaMixPayload,
+    pub ncmc_share: NcmcSharePayload,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NcmcSharePayload {
+    pub weeks: Vec<NcmcShareWeekPayload>,
+    pub insight: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NcmcShareWeekPayload {
+    pub week: String,
+    pub label: String,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub ncmc: f64,
+    pub ncmc_label: String,
+    pub commuter_total: f64,
+    pub commuter_total_label: String,
+    pub share: Option<f64>,
+    pub share_label: Option<String>,
+    pub tooltip: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -318,6 +343,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let waterfall = component_waterfall(dataset, range.end);
     let component_waterfall = component_waterfall_payload(waterfall.as_ref(), range.end);
     let fare_media_mix = fare_mix_payload(&fare_mix_series(dataset, range));
+    let ncmc_share = ncmc_share_payload(&ncmc_share_series(dataset, range));
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -372,6 +398,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             weekday_baseline,
             component_waterfall,
             fare_media_mix,
+            ncmc_share,
         },
         presets: range_presets(dataset)
             .iter()
@@ -467,6 +494,52 @@ fn fare_mix_payload(months: &[FareMixMonth]) -> FareMediaMixPayload {
     };
     FareMediaMixPayload {
         months: month_payloads,
+        insight,
+    }
+}
+
+fn ncmc_share_payload(weeks: &[NcmcShareWeek]) -> NcmcSharePayload {
+    let week_payloads = weeks
+        .iter()
+        .map(|week| {
+            let share = week.share();
+            NcmcShareWeekPayload {
+                week: week.week.to_string(),
+                label: week.week.format("%d %b").to_string(),
+                published_days: week.published_days,
+                complete_days: week.complete_days,
+                ncmc: week.ncmc,
+                ncmc_label: format_number_full(week.ncmc),
+                commuter_total: week.commuter_total,
+                commuter_total_label: format_number_full(week.commuter_total),
+                share,
+                share_label: share.map(percent_label),
+                tooltip: format!(
+                    "Week of {}: NCMC {} of Smart Card + NCMC {} ({}), {} complete of {} published days",
+                    week.week.format("%d %b %Y"),
+                    format_number_full(week.ncmc),
+                    format_number_full(week.commuter_total),
+                    share.map(percent_label).unwrap_or_else(|| "—".into()),
+                    week.complete_days,
+                    week.published_days
+                ),
+            }
+        })
+        .collect();
+    let usable: Vec<&NcmcShareWeek> = weeks.iter().filter(|week| week.share().is_some()).collect();
+    let insight = if usable.len() >= 2 {
+        let first = usable.first().expect("nonempty");
+        let last = usable.last().expect("nonempty");
+        format!(
+            "NCMC share of Smart Card + NCMC: {} → {} across complete observed days.",
+            percent_label(first.share().unwrap_or(0.0)),
+            percent_label(last.share().unwrap_or(0.0))
+        )
+    } else {
+        "Not enough complete weeks in the selected range to compare NCMC share.".to_string()
+    };
+    NcmcSharePayload {
+        weeks: week_payloads,
         insight,
     }
 }

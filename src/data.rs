@@ -142,6 +142,22 @@ pub struct FareMixMonth {
     pub components: [f64; 5],
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct NcmcShareWeek {
+    pub week: NaiveDate,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub ncmc: f64,
+    pub commuter_total: f64,
+}
+
+impl NcmcShareWeek {
+    pub fn share(&self) -> Option<f64> {
+        (self.complete_days > 0 && self.commuter_total > 0.0)
+            .then(|| self.ncmc / self.commuter_total)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaselineStatus {
     High,
@@ -865,4 +881,41 @@ pub fn fare_mix_series(dataset: &Dataset, range: DateRange) -> Vec<FareMixMonth>
         cursor = next_month;
     }
     months
+}
+
+/// Aggregate Smart Card + NCMC into ISO weeks. Both components must be present
+/// on a day for that day to contribute, so the count and share panels are
+/// calculated from the same evidence base.
+pub fn ncmc_share_series(dataset: &Dataset, range: DateRange) -> Vec<NcmcShareWeek> {
+    let start_week =
+        range.start - Duration::days(range.start.weekday().num_days_from_monday() as i64);
+    let mut cursor = start_week;
+    let mut weeks = Vec::new();
+    while cursor <= range.end {
+        let week_end = (cursor + Duration::days(6)).min(range.end);
+        let rows: Vec<&RidershipRecord> = dataset
+            .records
+            .iter()
+            .filter(|record| record.date >= cursor.max(range.start) && record.date <= week_end)
+            .collect();
+        let mut complete_days = 0;
+        let mut ncmc = 0.0;
+        let mut commuter_total = 0.0;
+        for record in &rows {
+            if let (Some(smart_card), Some(ncmc_value)) = (record.smart_card, record.ncmc) {
+                complete_days += 1;
+                ncmc += ncmc_value;
+                commuter_total += smart_card + ncmc_value;
+            }
+        }
+        weeks.push(NcmcShareWeek {
+            week: cursor,
+            published_days: rows.len(),
+            complete_days,
+            ncmc,
+            commuter_total,
+        });
+        cursor += Duration::days(7);
+    }
+    weeks
 }

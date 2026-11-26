@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
-    BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, RangeSummary,
-    RidershipRecord, WeekdayBaselinePoint, WeekdayMetric,
+    BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, NcmcShareWeek,
+    RangeSummary, RidershipRecord, WeekdayBaselinePoint, WeekdayMetric,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -16,6 +16,7 @@ pub enum Chart {
     WeekdayBaseline,
     ComponentWaterfall,
     FareMediaMix,
+    NcmcShare,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +28,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 6] = [
+pub static CHARTS: [ChartDefinition; 7] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -69,6 +70,13 @@ pub static CHARTS: [ChartDefinition; 6] = [
         title: "How is the Fare-Media Mix Shifting?",
         deck: "Monthly share mix, with the observed absolute total shown separately underneath.",
         method: "Each month uses only published days with complete parent components. Upper bars are shares of the observed total; lower bars are the observed absolute total for those same complete days, not full-month totals. Missing reports and incomplete components are never zero-filled. Shares are aggregate fare-media composition, not evidence that individual riders switched payment method.",
+    },
+    ChartDefinition {
+        chart: Chart::NcmcShare,
+        slug: "ncmc-share",
+        title: "How is NCMC’s Share Changing?",
+        deck: "Weekly NCMC share of Smart Cards + NCMC, with the NCMC count shown separately underneath.",
+        method: "Weeks aggregate only days where both Smart Card and NCMC are present, so the share and count use the same evidence base. Complete/published day counts make uneven week coverage visible. Missing values are never zero-filled. This is fare-media arithmetic, not proof that Smart Card users converted to NCMC.",
     },
 ];
 
@@ -780,6 +788,165 @@ fn signed_full(value: f64) -> String {
     } else {
         format_number_full(value)
     }
+}
+
+pub fn ncmc_share_insight(weeks: &[NcmcShareWeek]) -> String {
+    let usable: Vec<&NcmcShareWeek> = weeks.iter().filter(|week| week.share().is_some()).collect();
+    if usable.len() < 2 {
+        return "Not enough complete weeks in the selected range to compare NCMC share."
+            .to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    format!(
+        "NCMC share of Smart Card + NCMC: {:.1}% → {:.1}% across complete observed days.",
+        first.share().unwrap_or(0.0) * 100.0,
+        last.share().unwrap_or(0.0) * 100.0
+    )
+}
+
+pub fn ncmc_share_chart_markup(weeks: &[NcmcShareWeek]) -> String {
+    if weeks.is_empty() {
+        return r#"<div class="ncmc-wrap"><p class="ncmc-empty">No weeks are available in the selected range.</p></div>"#.to_string();
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 400.0;
+    const LEFT: f64 = 48.0;
+    const RIGHT: f64 = 22.0;
+    const TOP: f64 = 42.0;
+    const SHARE_H: f64 = 178.0;
+    const GAP: f64 = 34.0;
+    const TOTAL_H: f64 = 58.0;
+    const LABEL_Y: f64 = 366.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let step = plot_width / weeks.len().max(1) as f64;
+    let bar_width = (step * 0.52).clamp(10.0, 42.0);
+    let max_ncmc = weeks
+        .iter()
+        .map(|week| week.ncmc)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let total_base = TOP + SHARE_H + GAP + TOTAL_H;
+    let x = |index: usize| LEFT + step * (index as f64 + 0.5);
+    let share_y = |share: f64| TOP + SHARE_H - share * SHARE_H;
+    let mut svg = format!(
+        r#"<div class="ncmc-wrap"><svg class="ncmc-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Weekly NCMC share of Smart Cards plus NCMC"><g class="grid">"#
+    );
+    for (value, label) in [(0.0, "0%"), (0.5, "50%"), (1.0, "100%")] {
+        let yy = share_y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{label}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 9.0,
+            yy + 4.0
+        ));
+    }
+    svg.push_str(&format!(
+        r#"<line x1="{LEFT}" x2="{}" y1="{total_base:.1}" y2="{total_base:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text><text x="{}" y="{:.1}" text-anchor="end">0</text>"#,
+        WIDTH - RIGHT,
+        LEFT - 9.0,
+        total_base - TOTAL_H + 4.0,
+        compact_number(max_ncmc),
+        LEFT - 9.0,
+        total_base + 4.0
+    ));
+    svg.push_str("</g>");
+    let points: Vec<(usize, f64, f64)> = weeks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, week)| week.share().map(|share| (index, x(index), share_y(share))))
+        .collect();
+    for window in points.windows(2) {
+        let (left_index, x1, y1) = window[0];
+        let (right_index, x2, y2) = window[1];
+        if right_index == left_index + 1 {
+            svg.push_str(&format!(
+                r#"<line class="ncmc-share-line" x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"></line>"#
+            ));
+        }
+    }
+    for (index, week) in weeks.iter().enumerate() {
+        let xx = x(index);
+        if let Some(share) = week.share() {
+            let yy = share_y(share);
+            let tooltip = escape_attr(&format!(
+                "Week of {}: NCMC {} of Smart Card + NCMC {} ({:.1}%), {} complete of {} published days",
+                week.week.format("%d %b %Y"),
+                format_number_full(week.ncmc),
+                format_number_full(week.commuter_total),
+                share * 100.0,
+                week.complete_days,
+                week.published_days
+            ));
+            svg.push_str(&format!(
+                r#"<circle class="ncmc-share-point" cx="{xx:.1}" cy="{yy:.1}" r="5" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"></circle>"#
+            ));
+            let bar_height = week.ncmc / max_ncmc * TOTAL_H;
+            let bar_y = total_base - bar_height;
+            let total_tooltip = escape_attr(&format!(
+                "Week of {}: NCMC {} across {} complete days",
+                week.week.format("%d %b %Y"),
+                format_number_full(week.ncmc),
+                week.complete_days
+            ));
+            svg.push_str(&format!(
+                r#"<rect class="ncmc-count-bar" x="{:.1}" y="{bar_y:.1}" width="{bar_width}" height="{bar_height:.1}" aria-hidden="true"></rect><rect class="ncmc-count-hit" x="{:.1}" y="{bar_y:.1}" width="{bar_width}" height="{bar_height:.1}" fill="transparent" tabindex="0" role="img" aria-label="{total_tooltip}" data-tooltip="{total_tooltip}"></rect>"#,
+                xx - bar_width / 2.0,
+                xx - bar_width / 2.0
+            ));
+            if step >= 46.0 {
+                svg.push_str(&format!(
+                    r#"<text class="mix-coverage-label" x="{xx:.1}" y="{:.1}" text-anchor="middle">{}/{}d</text>"#,
+                    total_base + 17.0,
+                    week.complete_days,
+                    week.published_days
+                ));
+            }
+        } else {
+            svg.push_str(&format!(
+                r#"<rect class="mix-gap" x="{:.1}" y="{TOP}" width="{bar_width}" height="{SHARE_H}"></rect>"#,
+                xx - bar_width / 2.0
+            ));
+        }
+        let label_every = (weeks.len() / 10).max(1);
+        if index % label_every == 0 || index + 1 == weeks.len() {
+            svg.push_str(&format!(
+                r#"<text class="x-label mix-x-label" x="{xx:.1}" y="{LABEL_Y}" text-anchor="middle">{}</text>"#,
+                week.week.format("%d %b")
+            ));
+        }
+    }
+    svg.push_str("</svg>");
+    svg.push_str(r#"<div class="mix-legend" aria-label="NCMC chart legend"><span><i class="ncmc-line-key"></i>NCMC share</span><span><i class="ncmc-count-key"></i>NCMC count</span></div>"#);
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        ncmc_share_insight(weeks)
+    ));
+    svg.push_str(&ncmc_share_table(weeks));
+    svg.push_str("</div>");
+    svg
+}
+
+fn ncmc_share_table(weeks: &[NcmcShareWeek]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View NCMC share data table</summary><div class="table-scroll"><table><caption>Weekly NCMC count and share of Smart Cards plus NCMC</caption><thead><tr><th scope="col">Week</th><th scope="col">Complete days</th><th scope="col">NCMC</th><th scope="col">Smart + NCMC</th><th scope="col">NCMC share</th></tr></thead><tbody>"#,
+    );
+    for week in weeks {
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            week.week.format("%d %b %Y"),
+            week.complete_days,
+            week.published_days,
+            format_number_full(week.ncmc),
+            format_number_full(week.commuter_total),
+            week.share()
+                .map(|share| format!("{:.1}%", share * 100.0))
+                .unwrap_or_else(|| "—".into())
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
 }
 
 fn mix_percent(value: f64) -> String {

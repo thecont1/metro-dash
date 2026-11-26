@@ -39,8 +39,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let computeState = 'pending';
   let computeSettled = null;
 
-  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true };
-  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix'];
+  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true };
+  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share'];
   if (chartJump) {
     chartJump.querySelectorAll('option').forEach((option) => {
       if (!chartRegistry[option.value]) option.remove();
@@ -1017,6 +1017,105 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+  const renderNcmcShare = (animate = true) => {
+    if (!D3) return;
+    const scene = ensureScene('d3-ncmc-scene');
+    const weeks = payload.charts.ncmcShare?.weeks || [];
+    scene.selectAll('svg').remove();
+    scene.selectAll('.ncmc-empty').remove();
+    if (!weeks.length) {
+      scene.append('p').attr('class', 'ncmc-empty').text('No weeks are available in the selected range.');
+      choreograph(scene.node());
+      return;
+    }
+    const height = 400, left = 48, right = 22, top = 42;
+    const sceneWidth = scene.node()?.getBoundingClientRect().width || 1100;
+    const narrow = sceneWidth < 700;
+    const width = narrow ? Math.max(sceneWidth, weeks.length * 62) : 1100;
+    const shareH = 178, gap = 34, totalH = 58, labelY = 366;
+    const plotWidth = width - left - right;
+    const step = plotWidth / weeks.length;
+    const barWidth = Math.max(10, Math.min(42, step * 0.52));
+    const maxNcmc = Math.max(1, ...weeks.map(d => d.ncmc || 0));
+    const totalBase = top + shareH + gap + totalH;
+    const x = index => left + step * (index + 0.5);
+    const shareY = share => top + shareH - share * shareH;
+    scene.selectAll('.d3-insight').data(payload.charts.ncmcShare?.insight ? [payload.charts.ncmcShare.insight] : []).join('p')
+      .attr('class', 'd3-insight insight')
+      .text(d => d);
+    const svg = scene.append('svg')
+      .attr('class', `d3-ncmc-svg ncmc-chart${narrow ? ' mix-narrow' : ''}`)
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('role', 'img')
+      .attr('aria-label', 'Weekly NCMC share of Smart Cards plus NCMC, enhanced with D3');
+    if (narrow) svg.style('width', `${width}px`).style('height', `${height}px`);
+
+    [[0, '0%'], [0.5, '50%'], [1, '100%']].forEach(([value, label]) => {
+      const yy = shareY(value);
+      svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', yy).attr('y2', yy);
+      svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', yy + 4).attr('text-anchor', 'end').text(label);
+    });
+    svg.append('line').attr('class', 'd3-grid-line').attr('x1', left).attr('x2', width - right).attr('y1', totalBase).attr('y2', totalBase);
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase - totalH + 4).attr('text-anchor', 'end').text(compact(maxNcmc));
+    svg.append('text').attr('class', 'd3-y-label').attr('x', left - 9).attr('y', totalBase + 4).attr('text-anchor', 'end').text('0');
+
+    const usable = weeks.map((week, index) => ({...week, index})).filter(week => week.share != null);
+    const segments = usable.slice(1).map((point, i) => ({a: usable[i], b: point})).filter(pair => pair.b.index === pair.a.index + 1);
+    svg.selectAll('.ncmc-share-line').data(segments).join('line')
+      .attr('class', 'ncmc-share-line')
+      .attr('x1', d => x(d.a.index)).attr('y1', d => shareY(d.a.share))
+      .attr('x2', d => x(d.b.index)).attr('y2', d => shareY(d.b.share));
+
+    const pointSelection = svg.selectAll('.d3-ncmc-point').data(usable, d => d.week).join('circle')
+      .attr('class', 'd3-ncmc-point ncmc-share-point')
+      .attr('cx', d => x(d.index))
+      .attr('cy', d => shareY(d.share))
+      .attr('r', 5)
+      .attr('aria-label', d => d.tooltip)
+      .attr('data-tooltip', d => d.tooltip);
+    bindTooltip(pointSelection);
+
+    const bars = usable.map(week => ({...week, height: week.ncmc / maxNcmc * totalH}));
+    const barSelection = svg.selectAll('.d3-ncmc-count').data(bars, d => d.week).join('rect')
+      .attr('class', 'd3-ncmc-count ncmc-count-bar')
+      .attr('x', d => x(d.index) - barWidth / 2)
+      .attr('width', barWidth)
+      .attr('aria-label', d => `Week of ${d.label}: NCMC ${d.ncmcLabel} across ${d.completeDays} complete days`)
+      .attr('data-tooltip', d => `Week of ${d.label}: NCMC ${d.ncmcLabel} across ${d.completeDays} complete days`);
+    barSelection.transition().duration(canAnimate && animate ? 340 : 0)
+      .attr('y', d => totalBase - d.height)
+      .attr('height', d => d.height);
+    bindTooltip(barSelection);
+
+    svg.selectAll('.mix-gap').data(weeks.filter(d => d.share == null), d => d.week).join('rect')
+      .attr('class', 'mix-gap')
+      .attr('x', d => x(weeks.indexOf(d)) - barWidth / 2)
+      .attr('y', top).attr('width', barWidth).attr('height', shareH);
+    svg.selectAll('.mix-coverage-label').data(step >= 46 ? usable : [], d => d.week).join('text')
+      .attr('class', 'mix-coverage-label')
+      .attr('x', d => x(d.index))
+      .attr('y', totalBase + 17)
+      .attr('text-anchor', 'middle')
+      .text(d => `${d.completeDays}/${d.publishedDays}d`);
+    const labelEvery = Math.max(1, Math.floor(weeks.length / 10));
+    const labelledWeeks = weeks.filter((d, i) => i % labelEvery === 0 || i + 1 === weeks.length);
+    svg.selectAll('.mix-x-label').data(labelledWeeks, d => d.week).join('text')
+      .attr('class', 'd3-x-label mix-x-label')
+      .attr('x', d => x(weeks.indexOf(d)))
+      .attr('y', labelY)
+      .attr('text-anchor', 'middle')
+      .text(d => d.label);
+
+    const legend = svg.append('g').attr('class', 'baseline-svg-legend mix-svg-legend').attr('transform', `translate(${Math.max(left, width - right - 190)},8)`);
+    const shareItem = legend.append('g');
+    shareItem.append('line').attr('class', 'ncmc-line-key').attr('x1', 0).attr('x2', 14).attr('y1', 2).attr('y2', 2);
+    shareItem.append('text').attr('x', 20).attr('y', 6).text('Share');
+    const countItem = legend.append('g').attr('transform', 'translate(92,0)');
+    countItem.append('rect').attr('class', 'ncmc-count-key').attr('x', 2).attr('y', -4).attr('width', 10).attr('height', 10).attr('rx', 2);
+    countItem.append('text').attr('x', 18).attr('y', 6).text('NCMC count');
+    choreograph(scene.node());
+  };
+
   const buildDataCardHTML = (card) => {
     const endIdx = dates.indexOf(payload.range.end);
     const prevDisabled = endIdx <= 0;
@@ -1122,7 +1221,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     else if (activeChart === 'commute-casual') renderLine(animate);
     else if (activeChart === 'weekday-baseline') renderBaseline(animate);
     else if (activeChart === 'component-waterfall') renderWaterfall(animate);
-    else renderFareMix(animate);
+    else if (activeChart === 'fare-media-mix') renderFareMix(animate);
+    else renderNcmcShare(animate);
   };
 
   // The static site ships a wasm compute core; when present, range changes
@@ -1239,6 +1339,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     chartResizeTimer = setTimeout(() => {
       if (activeChart === 'commute-casual') renderLine(false);
       if (activeChart === 'fare-media-mix') renderFareMix(false);
+      if (activeChart === 'ncmc-share') renderNcmcShare(false);
     }, 120);
   });
   // Day cycling buttons on the data card — change the end date by one

@@ -8,7 +8,7 @@ use crate::charts::{Chart, band_label, calendar_markup, line_chart_markup};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
     BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
-    component_waterfall, fare_mix_series, parse_dataset, quantile, summarise,
+    component_waterfall, fare_mix_series, ncmc_share_series, parse_dataset, quantile, summarise,
     weekday_baseline_series,
 };
 use crate::payload::chart_payload_for;
@@ -167,6 +167,30 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
     assert_eq!(target.lower_quartile, Some(112.5));
     assert_eq!(target.upper_quartile, Some(137.5));
     assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
+fn ncmc_share_weeks_use_only_days_with_both_components() {
+    let csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n\
+01-01-2024,100,20,10,2,30\n\
+02-01-2024,100,,10,2,30\n\
+08-01-2024,100,60,10,2,30\n";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let weeks = ncmc_share_series(
+        &dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 1, 14).unwrap(),
+        },
+    );
+    assert_eq!(weeks.len(), 2);
+    assert_eq!(weeks[0].published_days, 2);
+    assert_eq!(weeks[0].complete_days, 1);
+    assert_eq!(weeks[0].ncmc, 20.0);
+    assert_eq!(weeks[0].commuter_total, 120.0);
+    assert_eq!(weeks[0].share(), Some(20.0 / 120.0));
+    assert_eq!(weeks[1].complete_days, 1);
+    assert_eq!(weeks[1].share(), Some(60.0 / 160.0));
 }
 
 #[test]
@@ -463,6 +487,12 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
     assert_eq!(payload.charts.fare_media_mix.months.len(), 1);
     assert_eq!(payload.charts.fare_media_mix.months[0].components.len(), 5);
     assert!(payload.charts.fare_media_mix.months[0].total.is_some());
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("ncmcShare")
+    );
+    assert_eq!(payload.charts.ncmc_share.weeks.len(), 4);
     assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);
     assert_eq!(
@@ -495,7 +525,7 @@ fn client_script_supports_direct_chart_selection() {
 fn charts_are_configured_to_fill_available_width() {
     assert!(STYLE.contains(".data-card-wrap{width:100%}"));
     assert!(STYLE.contains(
-        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg{display:block;width:100%"
+        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg{display:block;width:100%"
     ));
     assert!(CLIENT_SCRIPT.contains("window.addEventListener('resize'"));
 }

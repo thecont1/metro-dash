@@ -158,6 +158,7 @@ Two paths feed the same `Dataset` type:
 - `summarise()` computes: calendar days, observation days, missing days, percentile bands (p2–p98), min/max totals, weekday metrics (mean, sample SD, min/max per weekday)
 - `weekday_baseline_series()` computes a rolling same-weekday median and interquartile band from up to six earlier and six later published reports; the current day is excluded and at least four nearby reports are required
 - `fare_mix_series()` aggregates complete parent-component days by calendar month, preserves months with no usable observations as gaps, and never zero-fills missing components
+- `ncmc_share_series()` aggregates days with both Smart Card and NCMC into ISO weeks so count and share panels use the same evidence base
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -171,6 +172,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 4. **Weekday baseline chart (`weekday-baseline`)** — Daily totals compared with a rolling same-weekday median and interquartile band
 5. **Component waterfall (`component-waterfall`)** — Fare-media arithmetic contributions to the selected day's difference from its same-weekday reference
 6. **Fare-media mix (`fare-media-mix`)** — Monthly 100% share columns with observed absolute totals shown separately
+7. **NCMC share (`ncmc-share`)** — Weekly NCMC share of Smart Cards + NCMC with counts shown separately
 
 ### Adding a new chart
 
@@ -215,6 +217,13 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 - D3: Animated share segments and total bars with keyboard-focusable tooltips; narrow viewports use a fixed legible scale with contained horizontal scrolling
 - Aggregation: published parent-category totals summed only across days where all five parent components are present; the same complete days feed both shares and the observed-total strip
 - Interpretation: lower bars are observed totals, not full-month totals; shares are aggregate composition and do not prove individual switching
+
+### How is NCMC’s Share Changing?
+
+- SSR: Static SVG with a weekly share line/points, a separate NCMC count strip, coverage labels, and an accessible data table
+- D3: Animated points/bars with keyboard-focusable tooltips; narrow viewports use fixed legible scale with contained horizontal scrolling
+- Aggregation: only days with both Smart Card and NCMC contribute, so numerator and denominator use the same evidence base
+- Interpretation: fare-media composition arithmetic; it cannot prove that Smart Card users converted to NCMC
 
 ## Client-side architecture
 
