@@ -189,7 +189,7 @@ fn audit_and_estimation_series_preserve_missing_semantics() {
     assert_eq!(pulse[0].observed_days, 2);
     assert_eq!(pulse[0].missing_days, 5);
     let estimates = monthly_estimate_series(&dataset, range);
-    assert_eq!(estimates[0].observed_total, 300.0);
+    assert_eq!(estimates[0].observed_total, Some(300.0));
     assert_eq!(estimates[0].missing_days, 5);
     assert!(estimates[0].estimated_missing_total.is_some());
     let fields = field_completeness_grid(&dataset, range);
@@ -213,6 +213,51 @@ fn audit_and_estimation_series_preserve_missing_semantics() {
             .present_days,
         0
     );
+}
+
+#[test]
+fn monthly_estimates_fill_only_unpublished_dates_and_preserve_zero_observations() {
+    let csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR
+01-01-2024,40,10,20,10,20
+02-01-2024,,,,,
+01-02-2024,120,30,60,30,60
+02-02-2024,,,,,
+";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let estimates = monthly_estimate_series(
+        &dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 2, 29).unwrap(),
+        },
+    );
+    assert_eq!(estimates.len(), 2);
+    let january = &estimates[0];
+    assert_eq!(january.observed_total, Some(100.0));
+    assert_eq!(january.observed_days, 1);
+    assert_eq!(january.published_without_total_days, 1);
+    assert_eq!(january.missing_days, 29);
+    assert_eq!(january.estimated_missing_total, Some(2900.0));
+    let february = &estimates[1];
+    assert_eq!(february.observed_total, Some(300.0));
+    assert_eq!(february.observed_days, 1);
+    assert_eq!(february.published_without_total_days, 1);
+    assert_eq!(february.missing_days, 27);
+    assert_eq!(february.estimated_missing_total, Some(8100.0));
+
+    let zero_csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR
+01-03-2024,0,0,0,0,0
+";
+    let zero_dataset = parse_dataset(zero_csv, "fixture".into()).unwrap();
+    let zero_estimates = monthly_estimate_series(
+        &zero_dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 3, 31).unwrap(),
+        },
+    );
+    assert_eq!(zero_estimates[0].observed_total, Some(0.0));
+    assert_eq!(zero_estimates[0].published_without_total_days, 0);
 }
 
 #[test]
@@ -321,6 +366,42 @@ fn smart_mix_uses_complete_subtype_days_and_keeps_parent_total_separate() {
     assert_eq!(months[0].parent_smart_total, 100.0);
     assert!(months[0].has_mix());
     assert_eq!(months[1].subtypes, [180.0, 12.0, 4.0, 4.0]);
+}
+
+#[test]
+fn parent_mix_totals_track_partial_coverage() {
+    let smart_csv =
+        "Record Date,Total Smart Cards,StoredValueCard,OneDayPass,ThreeDayPass,FiveDayPass
+01-01-2024,100,80,10,5,5
+02-01-2024,,90,20,5,5
+";
+    let smart_dataset = parse_dataset(smart_csv, "fixture".into()).unwrap();
+    let smart_months = smart_mix_series(
+        &smart_dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
+        },
+    );
+    assert_eq!(smart_months[0].complete_days, 2);
+    assert_eq!(smart_months[0].parent_smart_days, 1);
+    assert_eq!(smart_months[0].parent_smart_total, 100.0);
+
+    let qr_csv = "Record Date,Total QR,QR Namma Metro,QR WhatsApp,QR Paytm,QR ONDC
+01-01-2024,100,40,30,10,10
+02-01-2024,,50,20,10,10
+";
+    let qr_dataset = parse_dataset(qr_csv, "fixture".into()).unwrap();
+    let qr_months = qr_mix_series(
+        &qr_dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
+        },
+    );
+    assert_eq!(qr_months[0].complete_days, 2);
+    assert_eq!(qr_months[0].parent_qr_days, 1);
+    assert_eq!(qr_months[0].parent_qr_total, 100.0);
 }
 
 #[test]

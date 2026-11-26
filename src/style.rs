@@ -233,7 +233,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .d3-mix-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
 .d3-mix-scene .d3-mix-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
 .d3-mix-scene .d3-insight{flex:0 0 auto;margin-bottom:4px}
-.d3-mix-scene .d3-mix-svg.mix-narrow{flex:0 0 auto}
+.d3-mix-scene .d3-mix-svg.mix-narrow{flex:0 0 auto;max-width:none}
 .d3-mix-segment:focus,.d3-mix-total:focus{outline:none;stroke:var(--ink);stroke-width:2}
 /* NCMC share */
 .ncmc-wrap{width:100%}
@@ -247,7 +247,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .d3-ncmc-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
 .d3-ncmc-scene .d3-ncmc-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
 .d3-ncmc-scene .d3-insight{flex:0 0 auto;margin-bottom:4px}
-.d3-ncmc-scene .d3-ncmc-svg.mix-narrow{flex:0 0 auto}
+.d3-ncmc-scene .d3-ncmc-svg.mix-narrow{flex:0 0 auto;max-width:none}
 .d3-ncmc-point:focus,.d3-ncmc-count:focus{outline:none;stroke:var(--ink);stroke-width:2}
 /* QR channel mix */
 .mix-qr-namma,.qr-qr-namma{fill:#2f7fbc;background:#2f7fbc}
@@ -265,7 +265,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .d3-qr-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
 .d3-qr-scene .d3-qr-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
 .d3-qr-scene .d3-insight{flex:0 0 auto;margin-bottom:4px}
-.d3-qr-scene .d3-qr-svg.mix-narrow{flex:0 0 auto}
+.d3-qr-scene .d3-qr-svg.mix-narrow{flex:0 0 auto;max-width:none}
 .d3-qr-segment:focus,.d3-qr-total:focus{outline:none;stroke:var(--ink);stroke-width:2}
 /* Smart Card subtype mix */
 .mix-stored-value,.smart-stored-value{fill:var(--accent);background:var(--accent)}
@@ -283,7 +283,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .d3-smart-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
 .d3-smart-scene .d3-smart-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
 .d3-smart-scene .d3-insight{flex:0 0 auto;margin-bottom:4px}
-.d3-smart-scene .d3-smart-svg.mix-narrow{flex:0 0 auto}
+.d3-smart-scene .d3-smart-svg.mix-narrow{flex:0 0 auto;max-width:none}
 .d3-smart-segment:focus,.d3-smart-total:focus{outline:none;stroke:var(--ink);stroke-width:2}
 /* Weekday distributions */
 .dist-chart .grid line,.d3-grid-line{stroke:var(--border);stroke-width:1}
@@ -294,10 +294,10 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .dist-whisker{stroke:var(--ink);stroke-width:2;opacity:.72}
 .dist-cap{stroke:var(--ink);stroke-width:2;opacity:.72}
 .dist-box{fill:color-mix(in srgb,var(--accent) 52%,white);stroke:var(--accent);stroke-width:2}
-.dist-median{stroke:var(--accent-deep);stroke-width:4;stroke-linecap:round}
+.dist-median{stroke:var(--accent);stroke-width:4;stroke-linecap:round}
 .dist-n,.dist-empty{fill:var(--muted);font:700 .66rem var(--font-mono)}
 .dist-key-box{fill:color-mix(in srgb,var(--accent) 52%,white);stroke:var(--accent)}
-.dist-key-median{fill:var(--accent-deep)}
+.dist-key-median{fill:var(--accent)}
 .dist-key-whisker{fill:var(--ink);opacity:.72}
 .d3-dist-hit:focus{outline:none;stroke:var(--ink);stroke-width:2}
 /* Weekend signatures */
@@ -320,6 +320,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .matrix-cell.matrix-high::before{background:var(--accent)}
 .matrix-cell.matrix-low::before{background:#d95f4f}
 .matrix-cell.matrix-neutral::before{background:#9b93ad}
+.matrix-cell.matrix-unavailable{background:color-mix(in srgb,var(--surface) 70%,white);border-style:dashed;color:var(--muted)}
 .matrix-cell.matrix-empty{background:repeating-linear-gradient(135deg,transparent 0 7px,color-mix(in srgb,var(--border) 55%,transparent) 7px 9px);color:var(--muted)}
 .matrix-cell b,.matrix-cell small{position:relative;z-index:1}
 .matrix-cell b{font:800 .82rem var(--font-mono)}
@@ -328,7 +329,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .matrix-cell:focus{outline:2px solid var(--ink);outline-offset:2px}
 .matrix-legend{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0 4px;color:var(--muted);font:650 .72rem var(--font-body)}
 .matrix-key{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;border:1px solid var(--border)}
-.matrix-key.matrix-high{background:var(--accent)}.matrix-key.matrix-low{background:#d95f4f}.matrix-key.matrix-neutral{background:#9b93ad}.matrix-key.matrix-empty{background:var(--surface)}
+.matrix-key.matrix-high{background:var(--accent)}.matrix-key.matrix-low{background:#d95f4f}.matrix-key.matrix-neutral{background:#9b93ad}.matrix-key.matrix-empty{background:var(--surface)}.matrix-key.matrix-unavailable{background:var(--surface);border-style:dashed}
 .matrix-empty{margin:32px auto;color:var(--muted);font:600 .95rem var(--font-body);text-align:center}
 /* HTML analytical charts */
 .d3-variability-scene,.d3-pulse-scene,.d3-estimate-scene,.d3-fields-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px;overflow:hidden}

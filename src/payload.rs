@@ -2,8 +2,8 @@ use serde::Serialize;
 
 use crate::charts::{
     CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown,
-    field_completeness_markup, format_number_full, format_range, insight_line,
-    month_weekday_matrix_insight, monthly_estimates_markup, reporting_pulse_markup,
+    field_completeness_markup, format_count, format_number_full, format_range, insight_line,
+    month_weekday_matrix_insight, monthly_estimates_markup, reporting_pulse_markup, signed_count,
     variability_markup, weekday_distribution_insight, weekday_name, weekend_signature_insight,
 };
 use crate::data::{
@@ -198,6 +198,8 @@ pub struct FareMixMonthPayload {
     pub complete_days: usize,
     pub total: Option<f64>,
     pub total_label: Option<String>,
+    pub total_days: usize,
+    pub total_partial: bool,
     pub components: Vec<FareMixComponentPayload>,
 }
 
@@ -224,8 +226,8 @@ pub struct ComponentWaterfallPayload {
     pub baseline_n: usize,
     pub reference_total: Option<f64>,
     pub reference_total_label: Option<String>,
-    pub actual_total: f64,
-    pub actual_total_label: String,
+    pub actual_total: Option<f64>,
+    pub actual_total_label: Option<String>,
     pub delta_total: Option<f64>,
     pub delta_total_label: Option<String>,
     pub components: Vec<ComponentDeltaPayload>,
@@ -560,8 +562,10 @@ fn month_weekday_matrix_payload(matrix: &MonthWeekdayMatrix) -> MonthWeekdayMatr
         .cells
         .iter()
         .map(|cell| {
-            let css_class = if cell.n == 0 || cell.ratio.is_none() {
+            let css_class = if cell.n == 0 {
                 "empty"
+            } else if cell.ratio.is_none() {
+                "unavailable"
             } else if cell.ratio.unwrap_or(1.0) >= 1.05 {
                 "high"
             } else if cell.ratio.unwrap_or(1.0) <= 0.95 {
@@ -576,7 +580,7 @@ fn month_weekday_matrix_payload(matrix: &MonthWeekdayMatrix) -> MonthWeekdayMatr
                     cell.month.format("%b %Y"),
                     weekday_name(cell.weekday)
                 )
-            } else {
+            } else if let Some(ratio) = cell.ratio {
                 format!(
                     "{} {}: median {}, {:.1}% of the overall {} median, n {}.",
                     cell.month.format("%b %Y"),
@@ -584,7 +588,18 @@ fn month_weekday_matrix_payload(matrix: &MonthWeekdayMatrix) -> MonthWeekdayMatr
                     cell.median
                         .map(format_number_full)
                         .unwrap_or_else(|| "—".into()),
-                    cell.ratio.unwrap_or(0.0) * 100.0,
+                    ratio * 100.0,
+                    weekday_name(cell.weekday),
+                    cell.n
+                )
+            } else {
+                format!(
+                    "{} {}: median {}, ratio unavailable because the overall {} baseline is unavailable or zero, n {}.",
+                    cell.month.format("%b %Y"),
+                    weekday_name(cell.weekday),
+                    cell.median
+                        .map(format_number_full)
+                        .unwrap_or_else(|| "—".into()),
                     weekday_name(cell.weekday),
                     cell.n
                 )
@@ -794,13 +809,15 @@ fn fare_mix_payload(months: &[FareMixMonth]) -> FareMediaMixPayload {
                 complete_days: month.complete_days,
                 total: month.total,
                 total_label: month.total.map(format_number_full),
+                total_days: month.complete_days,
+                total_partial: false,
                 components,
             }
         })
         .collect::<Vec<_>>();
     let usable: Vec<&FareMixMonth> = months
         .iter()
-        .filter(|month| month.total.is_some())
+        .filter(|month| month.total.is_some_and(|total| total > 0.0))
         .collect();
     let insight = if usable.len() >= 2 {
         let first = usable.first().expect("nonempty");
@@ -820,7 +837,7 @@ fn fare_mix_payload(months: &[FareMixMonth]) -> FareMediaMixPayload {
             percent_label(share_of(last, 1))
         )
     } else {
-        "Not enough complete months in the selected range to compare the mix.".to_string()
+        "Not enough positive-total months in the selected range to compare the mix.".to_string()
     };
     FareMediaMixPayload {
         months: month_payloads,
@@ -908,10 +925,12 @@ fn qr_mix_payload(months: &[QrMixMonth]) -> FareMediaMixPayload {
                 label: month.month.format("%b ’%y").to_string(),
                 published_days: month.published_days,
                 complete_days: month.complete_days,
-                total: month.has_mix().then_some(month.parent_qr_total),
-                total_label: month
-                    .has_mix()
+                total: (month.parent_qr_days > 0).then_some(month.parent_qr_total),
+                total_label: (month.parent_qr_days > 0)
                     .then(|| format_number_full(month.parent_qr_total)),
+                total_days: month.parent_qr_days,
+                total_partial: month.parent_qr_days > 0
+                    && month.parent_qr_days < month.complete_days,
                 components,
             }
         })
@@ -974,10 +993,11 @@ fn smart_mix_payload(months: &[SmartMixMonth]) -> FareMediaMixPayload {
                 label: month.month.format("%b ’%y").to_string(),
                 published_days: month.published_days,
                 complete_days: month.complete_days,
-                total: month.has_mix().then_some(month.parent_smart_total),
-                total_label: month
-                    .has_mix()
+                total: (month.parent_smart_days > 0).then_some(month.parent_smart_total),
+                total_label: (month.parent_smart_days > 0)
                     .then(|| format_number_full(month.parent_smart_total)),
+                total_days: month.parent_smart_days,
+                total_partial: month.parent_smart_days > 0 && month.parent_smart_days < month.complete_days,
                 components,
             }
         })
@@ -1006,11 +1026,7 @@ fn smart_mix_payload(months: &[SmartMixMonth]) -> FareMediaMixPayload {
 }
 
 fn signed_number(value: f64) -> String {
-    if value > 0.0 {
-        format!("+{}", format_number_full(value))
-    } else {
-        format_number_full(value)
-    }
+    signed_count(value)
 }
 
 fn component_waterfall_payload(
@@ -1031,8 +1047,8 @@ fn component_waterfall_payload(
             baseline_n: 0,
             reference_total: None,
             reference_total_label: None,
-            actual_total: 0.0,
-            actual_total_label: "—".to_string(),
+            actual_total: None,
+            actual_total_label: None,
             delta_total: None,
             delta_total_label: None,
             components: Vec::new(),
@@ -1053,9 +1069,9 @@ fn component_waterfall_payload(
             key: component.key,
             label: component.label,
             reference: component.reference,
-            reference_label: format_number_full(component.reference),
+            reference_label: format_count(component.reference),
             actual: component.actual,
-            actual_label: format_number_full(component.actual),
+            actual_label: format_count(component.actual),
             delta: component.delta,
             delta_label: signed_number(component.delta),
             cumulative_start: component.cumulative_start,
@@ -1064,8 +1080,8 @@ fn component_waterfall_payload(
             tooltip: format!(
                 "{}: {} actual vs {} reference; delta {}",
                 component.label,
-                format_number_full(component.actual),
-                format_number_full(component.reference),
+                format_count(component.actual),
+                format_count(component.reference),
                 signed_number(component.delta)
             ),
         })
@@ -1096,9 +1112,9 @@ fn component_waterfall_payload(
         weekday: weekday_name(waterfall.weekday),
         baseline_n: waterfall.baseline_n,
         reference_total: waterfall.reference_total,
-        reference_total_label: waterfall.reference_total.map(format_number_full),
-        actual_total: waterfall.actual_total,
-        actual_total_label: format_number_full(waterfall.actual_total),
+        reference_total_label: waterfall.reference_total.map(format_count),
+        actual_total: Some(waterfall.actual_total),
+        actual_total_label: Some(format_count(waterfall.actual_total)),
         delta_total: waterfall.delta_total,
         delta_total_label: waterfall.delta_total.map(signed_number),
         components,

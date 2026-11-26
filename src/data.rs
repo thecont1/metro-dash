@@ -173,6 +173,7 @@ pub struct QrMixMonth {
     pub providers: [f64; 4],
     pub provider_total: f64,
     pub parent_qr_total: f64,
+    pub parent_qr_days: usize,
 }
 
 impl QrMixMonth {
@@ -196,6 +197,7 @@ pub struct SmartMixMonth {
     pub subtypes: [f64; 4],
     pub subtype_total: f64,
     pub parent_smart_total: f64,
+    pub parent_smart_days: usize,
 }
 
 impl SmartMixMonth {
@@ -229,9 +231,10 @@ pub struct MonthlyEstimate {
     pub month: NaiveDate,
     pub calendar_days: usize,
     pub observed_days: usize,
+    pub published_without_total_days: usize,
     pub missing_days: usize,
     pub coverage: f64,
-    pub observed_total: f64,
+    pub observed_total: Option<f64>,
     pub estimated_missing_total: Option<f64>,
     pub low_total: Option<f64>,
     pub high_total: Option<f64>,
@@ -807,9 +810,20 @@ pub fn quantile(values: &[f64], probability: f64) -> Option<f64> {
 
 /// Compute a rolling, weekday-specific baseline for every reported day in
 /// `range`. The baseline for a day uses up to six published reports before
-/// and six after that day with the same weekday, so a Monday is compared with
-/// nearby Mondays and the current value never contaminates its own reference band.
+/// and six after that day with the same weekday and a usable total, so a Monday is compared
+/// with nearby Mondays and the current value never contaminates its own reference band.
 pub fn weekday_baseline_series(dataset: &Dataset, range: DateRange) -> Vec<WeekdayBaselinePoint> {
+    let mut by_weekday: [Vec<(NaiveDate, f64)>; 7] = Default::default();
+    for record in &dataset.records {
+        if let Some(total) = record.total_ridership {
+            by_weekday[record.date.weekday().num_days_from_monday() as usize]
+                .push((record.date, total));
+        }
+    }
+    for entries in &mut by_weekday {
+        entries.sort_by_key(|(date, _)| *date);
+    }
+
     dataset
         .records
         .iter()
@@ -817,25 +831,18 @@ pub fn weekday_baseline_series(dataset: &Dataset, range: DateRange) -> Vec<Weekd
         .filter_map(|record| {
             let total = record.total_ridership?;
             let half_window = BASELINE_WINDOW / 2;
-            let prior_values = dataset
-                .records
+            let entries = &by_weekday[record.date.weekday().num_days_from_monday() as usize];
+            let prior_end = entries.partition_point(|(date, _)| *date < record.date);
+            let following_start = entries.partition_point(|(date, _)| *date <= record.date);
+            let prior_values = entries[..prior_end]
                 .iter()
                 .rev()
-                .filter(|candidate| {
-                    candidate.date < record.date
-                        && candidate.date.weekday() == record.date.weekday()
-                })
-                .filter_map(|candidate| candidate.total_ridership)
-                .take(half_window);
-            let following_values = dataset
-                .records
+                .take(half_window)
+                .map(|(_, value)| *value);
+            let following_values = entries[following_start..]
                 .iter()
-                .filter(|candidate| {
-                    candidate.date > record.date
-                        && candidate.date.weekday() == record.date.weekday()
-                })
-                .filter_map(|candidate| candidate.total_ridership)
-                .take(half_window);
+                .take(half_window)
+                .map(|(_, value)| *value);
             let baseline_values: Vec<f64> = prior_values.chain(following_values).collect();
             let baseline_n = baseline_values.len();
             let quartiles = (baseline_n >= BASELINE_MIN_OBSERVATIONS).then(|| {
@@ -1086,6 +1093,7 @@ pub fn qr_mix_series(dataset: &Dataset, range: DateRange) -> Vec<QrMixMonth> {
         let mut providers = [0.0; 4];
         let mut complete_days = 0;
         let mut parent_qr_total = 0.0;
+        let mut parent_qr_days = 0;
         for record in &rows {
             if let Some(values) = qr_provider_components(record) {
                 complete_days += 1;
@@ -1095,6 +1103,7 @@ pub fn qr_mix_series(dataset: &Dataset, range: DateRange) -> Vec<QrMixMonth> {
                 if let Some(parent) = raw_parent_value(record, dataset.field_mapping.qr.as_deref())
                 {
                     parent_qr_total += parent;
+                    parent_qr_days += 1;
                 }
             }
         }
@@ -1105,6 +1114,7 @@ pub fn qr_mix_series(dataset: &Dataset, range: DateRange) -> Vec<QrMixMonth> {
             providers,
             provider_total: providers.iter().sum(),
             parent_qr_total,
+            parent_qr_days,
         });
         cursor = next_month;
     }
@@ -1174,6 +1184,8 @@ pub fn variability_ranking(dataset: &Dataset, range: DateRange) -> Vec<CategoryV
 pub fn reporting_pulse_series(dataset: &Dataset, range: DateRange) -> Vec<ReportingPulseMonth> {
     let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
         .expect("valid month start");
+    let published_dates: std::collections::HashSet<NaiveDate> =
+        dataset.records.iter().map(|record| record.date).collect();
     let mut months = Vec::new();
     while cursor <= range.end {
         let next_month = cursor
@@ -1188,7 +1200,7 @@ pub fn reporting_pulse_series(dataset: &Dataset, range: DateRange) -> Vec<Report
         let mut date = start;
         while date <= month_end {
             calendar_days += 1;
-            if dataset.records.iter().any(|record| record.date == date) {
+            if published_dates.contains(&date) {
                 observed_days += 1;
                 current_missing_run = 0;
             } else {
@@ -1232,8 +1244,8 @@ pub fn monthly_estimate_series(dataset: &Dataset, range: DateRange) -> Vec<Month
             .iter()
             .filter_map(|record| record.total_ridership)
             .collect();
-        let observed_total: f64 = totals.iter().sum();
-        let overall_mean = (!totals.is_empty()).then(|| observed_total / totals.len() as f64);
+        let observed_total = (!totals.is_empty()).then(|| totals.iter().sum::<f64>());
+        let overall_mean = observed_total.map(|total| total / totals.len() as f64);
         let mut calendar_days = 0;
         let mut missing_days = 0;
         let mut estimated_missing_total = 0.0;
@@ -1266,12 +1278,17 @@ pub fn monthly_estimate_series(dataset: &Dataset, range: DateRange) -> Vec<Month
             month: cursor,
             calendar_days,
             observed_days: totals.len(),
+            published_without_total_days: observed.len().saturating_sub(totals.len()),
             missing_days,
             coverage: totals.len() as f64 / calendar_days.max(1) as f64,
             observed_total,
             estimated_missing_total: estimated,
-            low_total: estimated.map(|estimate| observed_total + estimate * 0.8),
-            high_total: estimated.map(|estimate| observed_total + estimate * 1.2),
+            low_total: estimated
+                .zip(observed_total)
+                .map(|(estimate, observed)| observed + estimate * 0.8),
+            high_total: estimated
+                .zip(observed_total)
+                .map(|(estimate, observed)| observed + estimate * 1.2),
         });
         cursor = next_month;
     }
@@ -1504,6 +1521,7 @@ pub fn smart_mix_series(dataset: &Dataset, range: DateRange) -> Vec<SmartMixMont
         let mut subtypes = [0.0; 4];
         let mut complete_days = 0;
         let mut parent_smart_total = 0.0;
+        let mut parent_smart_days = 0;
         for record in &rows {
             if let Some(values) = smart_subtype_components(record) {
                 complete_days += 1;
@@ -1514,6 +1532,7 @@ pub fn smart_mix_series(dataset: &Dataset, range: DateRange) -> Vec<SmartMixMont
                     raw_parent_value(record, dataset.field_mapping.smart_card.as_deref())
                 {
                     parent_smart_total += parent;
+                    parent_smart_days += 1;
                 }
             }
         }
@@ -1524,6 +1543,7 @@ pub fn smart_mix_series(dataset: &Dataset, range: DateRange) -> Vec<SmartMixMont
             subtypes,
             subtype_total: subtypes.iter().sum(),
             parent_smart_total,
+            parent_smart_days,
         });
         cursor = next_month;
     }

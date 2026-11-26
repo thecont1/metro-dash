@@ -156,7 +156,7 @@ Two paths feed the same `Dataset` type:
 ### Statistics
 
 - `summarise()` computes: calendar days, observation days, missing days, percentile bands (p2–p98), min/max totals, weekday metrics (mean, sample SD, min/max per weekday)
-- `weekday_baseline_series()` computes a rolling same-weekday median and interquartile band from up to six earlier and six later published reports; the current day is excluded and at least four nearby reports are required
+- `weekday_baseline_series()` computes a rolling same-weekday median and interquartile band from up to six earlier and six later reports with usable totals; the current day is excluded, at least four usable nearby observations are required, and fewer than four leave the baseline unavailable
 - `fare_mix_series()` aggregates complete parent-component days by calendar month, preserves months with no usable observations as gaps, and never zero-fills missing components
 - `ncmc_share_series()` aggregates days with both Smart Card and NCMC into ISO weeks so count and share panels use the same evidence base
 - `qr_mix_series()` aggregates complete four-provider QR days by month; shares use provider sums while parent QR remains a separate scale measure because they do not always reconcile

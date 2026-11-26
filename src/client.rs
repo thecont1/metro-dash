@@ -134,8 +134,11 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const text = target.dataset.tooltip || target.getAttribute('aria-label');
     if (!tooltip || !text) return;
     const bounds = target.getBoundingClientRect();
+    if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
     tooltip.textContent = text;
     tooltip.hidden = false;
+    tooltip.style.opacity = '1';
+    tooltip.style.transition = 'none';
     tooltip.style.left = `${Math.min(window.innerWidth - 128, Math.max(128, bounds.left + bounds.width / 2))}px`;
     tooltip.style.top = `${Math.max(12, bounds.top - 10)}px`;
   };
@@ -639,7 +642,10 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     scene.selectAll('.baseline-empty').data(points.length ? [] : [true]).join('p')
       .attr('class', 'baseline-empty')
       .text('No published totals are available in this range.');
-    if (!points.length) return;
+    if (!points.length) {
+      scene.selectAll('svg').remove();
+      return;
+    }
 
     const width = 1100, height = 360, left = 70, right = 34, top = 36, bottom = 52;
     const plotWidth = width - left - right;
@@ -1161,17 +1167,20 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const totals = [];
     const gaps = [];
     months.forEach((month, monthIndex) => {
-      if (month.total > 0) {
+      const hasShare = month.components.some(component => component.share != null);
+      if (hasShare) {
         let cumulative = 0;
         month.components.forEach(component => {
           const share = component.share || 0;
           segments.push({month, monthIndex, component, share, y: top + cumulative * shareH, height: Math.max(component.value > 0 ? 1 : 0, share * shareH)});
           cumulative += share;
         });
-        const barH = month.total / maxTotal * totalH;
-        totals.push({month, monthIndex, height: barH, y: totalBase - barH});
       } else {
         gaps.push({month, monthIndex});
+      }
+      if (month.total != null) {
+        const barH = month.total / maxTotal * totalH;
+        totals.push({month, monthIndex, height: barH, y: totalBase - barH});
       }
     });
 
@@ -1190,8 +1199,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       .attr('class', 'd3-qr-total mix-total-bar')
       .attr('x', d => x(d.monthIndex) - barWidth / 2)
       .attr('width', barWidth)
-      .attr('aria-label', d => `${d.month.label} observed total: ${d.month.totalLabel} across ${d.month.completeDays} complete days`)
-      .attr('data-tooltip', d => `${d.month.label} observed total: ${d.month.totalLabel} across ${d.month.completeDays} complete days`);
+      .attr('aria-label', d => `${d.month.label} parent Total QR: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete provider days)` : ` across ${d.month.completeDays} complete provider days`}`)
+      .attr('data-tooltip', d => `${d.month.label} parent Total QR: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete provider days)` : ` across ${d.month.completeDays} complete provider days`}`);
     totalSelection.transition().duration(canAnimate && animate ? 340 : 0)
       .attr('y', d => d.y)
       .attr('height', d => d.height);
@@ -1203,7 +1212,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       .attr('y', top)
       .attr('width', barWidth)
       .attr('height', shareH);
-    svg.selectAll('.mix-coverage-label').data(months.filter(d => d.total > 0), d => d.month).join('text')
+    svg.selectAll('.mix-coverage-label').data(months.filter(d => d.components.some(component => component.share != null)), d => d.month).join('text')
       .attr('class', 'mix-coverage-label')
       .attr('x', d => x(months.indexOf(d)))
       .attr('y', totalBase + 17)
@@ -1275,17 +1284,20 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     const totals = [];
     const gaps = [];
     months.forEach((month, monthIndex) => {
-      if (month.total > 0) {
+      const hasShare = month.components.some(component => component.share != null);
+      if (hasShare) {
         let cumulative = 0;
         month.components.forEach(component => {
           const share = component.share || 0;
           segments.push({month, monthIndex, component, share, y: top + cumulative * shareH, height: Math.max(component.value > 0 ? 1 : 0, share * shareH)});
           cumulative += share;
         });
-        const barH = month.total / maxTotal * totalH;
-        totals.push({month, monthIndex, height: barH, y: totalBase - barH});
       } else {
         gaps.push({month, monthIndex});
+      }
+      if (month.total != null) {
+        const barH = month.total / maxTotal * totalH;
+        totals.push({month, monthIndex, height: barH, y: totalBase - barH});
       }
     });
 
@@ -1304,8 +1316,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       .attr('class', 'd3-smart-total mix-total-bar')
       .attr('x', d => x(d.monthIndex) - barWidth / 2)
       .attr('width', barWidth)
-      .attr('aria-label', d => `${d.month.label} observed total: ${d.month.totalLabel} across ${d.month.completeDays} complete days`)
-      .attr('data-tooltip', d => `${d.month.label} observed total: ${d.month.totalLabel} across ${d.month.completeDays} complete days`);
+      .attr('aria-label', d => `${d.month.label} parent Smart Cards: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete subtype days)` : ` across ${d.month.completeDays} complete subtype days`}`)
+      .attr('data-tooltip', d => `${d.month.label} parent Smart Cards: ${d.month.totalLabel}${d.month.totalPartial ? ` (partial, ${d.month.totalDays}/${d.month.completeDays} complete subtype days)` : ` across ${d.month.completeDays} complete subtype days`}`);
     totalSelection.transition().duration(canAnimate && animate ? 340 : 0)
       .attr('y', d => d.y)
       .attr('height', d => d.height);
@@ -1317,7 +1329,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
       .attr('y', top)
       .attr('width', barWidth)
       .attr('height', shareH);
-    svg.selectAll('.mix-coverage-label').data(months.filter(d => d.total > 0), d => d.month).join('text')
+    svg.selectAll('.mix-coverage-label').data(months.filter(d => d.components.some(component => component.share != null)), d => d.month).join('text')
       .attr('class', 'mix-coverage-label')
       .attr('x', d => x(months.indexOf(d)))
       .attr('y', totalBase + 17)
@@ -1624,7 +1636,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
           continue;
         }
         const main = cell.n ? (cell.ratioLabel || '—') : '—';
-        html += `<span class="matrix-cell matrix-${cell.cssClass}" style="--heat:${cell.heat}" role="gridcell" tabindex="0" aria-label="${cell.tooltip}" data-tooltip="${cell.tooltip}"><b>${main}</b><small>n ${cell.n}</small></span>`;
+        const medianLine = cell.n && cell.ratio == null && cell.medianLabel ? `<small>med ${cell.medianLabel}</small>` : '';
+        html += `<span class="matrix-cell matrix-${cell.cssClass}" style="--heat:${cell.heat}" role="gridcell" tabindex="0" aria-label="${cell.tooltip}" data-tooltip="${cell.tooltip}"><b>${main}</b>${medianLine}<small>n ${cell.n}</small></span>`;
       }
     });
     html += '</div></div><div class="matrix-legend"><span><i class="matrix-key matrix-high"></i>Above baseline</span><span><i class="matrix-key matrix-neutral"></i>Near baseline</span><span><i class="matrix-key matrix-low"></i>Below baseline</span><span><i class="matrix-key matrix-empty"></i>No observations</span></div>';
@@ -1833,6 +1846,7 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
 
     chartStage.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
+      if (e.target.closest('.matrix-scroll')) return;
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
       touchActive = true;
