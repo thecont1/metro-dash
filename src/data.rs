@@ -181,6 +181,29 @@ impl QrMixMonth {
     }
 }
 
+pub const SMART_SUBTYPE_CATEGORIES: [(&str, &str); 4] = [
+    ("stored-value", "Stored Value"),
+    ("one-day-pass", "One Day Pass"),
+    ("three-day-pass", "Three Day Pass"),
+    ("five-day-pass", "Five Day Pass"),
+];
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SmartMixMonth {
+    pub month: NaiveDate,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub subtypes: [f64; 4],
+    pub subtype_total: f64,
+    pub parent_smart_total: f64,
+}
+
+impl SmartMixMonth {
+    pub fn has_mix(&self) -> bool {
+        self.complete_days > 0 && self.subtype_total > 0.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaselineStatus {
     High,
@@ -991,6 +1014,60 @@ pub fn qr_mix_series(dataset: &Dataset, range: DateRange) -> Vec<QrMixMonth> {
             providers,
             provider_total: providers.iter().sum(),
             parent_qr_total,
+        });
+        cursor = next_month;
+    }
+    months
+}
+
+fn smart_subtype_components(record: &RidershipRecord) -> Option<[f64; 4]> {
+    Some([
+        record.stored_value?,
+        record.one_day_pass?,
+        record.three_day_pass?,
+        record.five_day_pass?,
+    ])
+}
+
+/// Aggregate Smart Card subtypes by month. Shares use the subtype sum; the
+/// published parent Smart Card total is retained separately as scale context.
+pub fn smart_mix_series(dataset: &Dataset, range: DateRange) -> Vec<SmartMixMonth> {
+    let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+        .expect("valid month start");
+    let mut months = Vec::new();
+    while cursor <= range.end {
+        let next_month = cursor
+            .checked_add_months(Months::new(1))
+            .expect("valid next month");
+        let month_end = (next_month - Duration::days(1)).min(range.end);
+        let rows: Vec<&RidershipRecord> = dataset
+            .records
+            .iter()
+            .filter(|record| record.date >= cursor.max(range.start) && record.date <= month_end)
+            .collect();
+        let mut subtypes = [0.0; 4];
+        let mut complete_days = 0;
+        let mut parent_smart_total = 0.0;
+        for record in &rows {
+            if let Some(values) = smart_subtype_components(record) {
+                complete_days += 1;
+                for (index, value) in values.iter().enumerate() {
+                    subtypes[index] += value;
+                }
+                if let Some(parent) =
+                    raw_parent_value(record, dataset.field_mapping.smart_card.as_deref())
+                {
+                    parent_smart_total += parent;
+                }
+            }
+        }
+        months.push(SmartMixMonth {
+            month: cursor,
+            published_days: rows.len(),
+            complete_days,
+            subtypes,
+            subtype_total: subtypes.iter().sum(),
+            parent_smart_total,
         });
         cursor = next_month;
     }

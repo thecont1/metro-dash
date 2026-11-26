@@ -5,7 +5,7 @@ use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
     BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, NcmcShareWeek,
-    QrMixMonth, RangeSummary, RidershipRecord, WeekdayBaselinePoint, WeekdayMetric,
+    QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint, WeekdayMetric,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -18,6 +18,7 @@ pub enum Chart {
     FareMediaMix,
     NcmcShare,
     QrMix,
+    SmartMix,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -29,7 +30,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 8] = [
+pub static CHARTS: [ChartDefinition; 9] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -85,6 +86,13 @@ pub static CHARTS: [ChartDefinition; 8] = [
         title: "Which QR Channels Make Up QR Use?",
         deck: "Monthly provider-level shares, with parent Total QR shown separately underneath.",
         method: "Months aggregate days where all four QR provider fields are present. Shares use the provider sum because provider splits do not always reconcile with parent Total QR; the lower strip shows parent Total QR for the same complete days. Zero is treated as reported zero, while missing fields exclude the day. This describes aggregate channel mix, not individual app use.",
+    },
+    ChartDefinition {
+        chart: Chart::SmartMix,
+        slug: "smart-card-mix",
+        title: "What is Inside Smart Cards?",
+        deck: "Monthly Smart Card subtype shares, with parent Smart Cards shown separately underneath.",
+        method: "Months aggregate days where all four Smart Card subtype fields are present. Shares use the subtype sum; the lower strip shows the published parent Smart Card total for the same complete days. Missing fields exclude the day rather than becoming zero. These are fare-media counts, not unique people or trip purposes.",
     },
 ];
 
@@ -796,6 +804,92 @@ fn signed_full(value: f64) -> String {
     } else {
         format_number_full(value)
     }
+}
+
+pub fn smart_mix_insight(months: &[SmartMixMonth]) -> String {
+    let usable: Vec<&SmartMixMonth> = months.iter().filter(|month| month.has_mix()).collect();
+    if usable.len() < 2 {
+        return "Not enough complete months in the selected range to compare Smart Card subtypes."
+            .to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    let share =
+        |month: &SmartMixMonth, index: usize| month.subtypes[index] / month.subtype_total * 100.0;
+    format!(
+        "Stored Value {:.1}% → {:.1}%; One Day Pass {:.1}% → {:.1}% of Smart Card subtypes.",
+        share(first, 0),
+        share(last, 0),
+        share(first, 1),
+        share(last, 1)
+    )
+}
+
+pub fn smart_mix_chart_markup(months: &[SmartMixMonth]) -> String {
+    let mut html = String::from(r#"<div class="smart-ssr-wrap"><div class="smart-ssr-months">"#);
+    for month in months {
+        html.push_str(&format!(
+            r#"<div class="smart-ssr-month"><span class="smart-ssr-label">{}</span>"#,
+            month.month.format("%b ’%y")
+        ));
+        if month.has_mix() {
+            html.push_str(r#"<span class="smart-ssr-bar">"#);
+            for (index, (key, label)) in crate::data::SMART_SUBTYPE_CATEGORIES.iter().enumerate() {
+                let share = month.subtypes[index] / month.subtype_total * 100.0;
+                html.push_str(&format!(
+                    r#"<i class="smart-segment smart-{key}" style="width:{share:.3}%" title="{}: {:.1}%"></i>"#,
+                    label, share
+                ));
+            }
+            html.push_str(r#"</span>"#);
+        } else {
+            html.push_str(r#"<span class="smart-ssr-gap">No complete subtype days</span>"#);
+        }
+        html.push_str(&format!(
+            r#"<span class="smart-ssr-meta">{}/{}d · Smart {}</span></div>"#,
+            month.complete_days,
+            month.published_days,
+            if month.has_mix() {
+                format_number_full(month.parent_smart_total)
+            } else {
+                "—".into()
+            }
+        ));
+    }
+    html.push_str(r#"</div><div class="mix-legend"><span><i class="mix-key smart-stored-value"></i>Stored Value</span><span><i class="mix-key smart-one-day-pass"></i>One Day Pass</span><span><i class="mix-key smart-three-day-pass"></i>Three Day Pass</span><span><i class="mix-key smart-five-day-pass"></i>Five Day Pass</span></div>"#);
+    html.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        smart_mix_insight(months)
+    ));
+    html.push_str(&smart_mix_table(months));
+    html.push_str("</div>");
+    html
+}
+
+fn smart_mix_table(months: &[SmartMixMonth]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View Smart Card subtype data table</summary><div class="table-scroll"><table><caption>Monthly Smart Card subtype counts and shares</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Parent Smart Cards</th><th scope="col">Stored Value</th><th scope="col">One Day Pass</th><th scope="col">Three Day Pass</th><th scope="col">Five Day Pass</th></tr></thead><tbody>"#,
+    );
+    for month in months {
+        let share = |index: usize| {
+            if month.has_mix() {
+                format!(
+                    "{:.1}%",
+                    month.subtypes[index] / month.subtype_total * 100.0
+                )
+            } else {
+                "—".into()
+            }
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            month.month.format("%b %Y"), month.complete_days, month.published_days,
+            if month.has_mix() { format_number_full(month.parent_smart_total) } else { "—".into() },
+            share(0), share(1), share(2), share(3)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
 }
 
 pub fn qr_mix_insight(months: &[QrMixMonth]) -> String {

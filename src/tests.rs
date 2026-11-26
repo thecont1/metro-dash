@@ -9,7 +9,7 @@ use crate::client::CLIENT_SCRIPT;
 use crate::data::{
     BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
     component_waterfall, fare_mix_series, ncmc_share_series, parse_dataset, qr_mix_series,
-    quantile, summarise, weekday_baseline_series,
+    quantile, smart_mix_series, summarise, weekday_baseline_series,
 };
 use crate::payload::chart_payload_for;
 use crate::render::{chart_jump_markup, parse_query, range_action_links};
@@ -167,6 +167,30 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
     assert_eq!(target.lower_quartile, Some(112.5));
     assert_eq!(target.upper_quartile, Some(137.5));
     assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
+fn smart_mix_uses_complete_subtype_days_and_keeps_parent_total_separate() {
+    let csv = "Record Date,Total Smart Cards,StoredValueCard,OneDayPass,ThreeDayPass,FiveDayPass\n\
+01-01-2024,100,80,10,5,5\n\
+02-01-2024,100,90,,5,5\n\
+01-02-2024,200,180,12,4,4\n";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let months = smart_mix_series(
+        &dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 2, 29).unwrap(),
+        },
+    );
+    assert_eq!(months.len(), 2);
+    assert_eq!(months[0].published_days, 2);
+    assert_eq!(months[0].complete_days, 1);
+    assert_eq!(months[0].subtypes, [80.0, 10.0, 5.0, 5.0]);
+    assert_eq!(months[0].subtype_total, 100.0);
+    assert_eq!(months[0].parent_smart_total, 100.0);
+    assert!(months[0].has_mix());
+    assert_eq!(months[1].subtypes, [180.0, 12.0, 4.0, 4.0]);
 }
 
 #[test]
@@ -517,7 +541,11 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
             .contains("ncmcShare")
     );
     assert_eq!(payload.charts.ncmc_share.weeks.len(), 4);
-    assert!(serde_json::to_string(&payload).unwrap().contains("qrMix"));
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("smartMix")
+    );
     assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);
     assert_eq!(
@@ -550,7 +578,7 @@ fn client_script_supports_direct_chart_selection() {
 fn charts_are_configured_to_fill_available_width() {
     assert!(STYLE.contains(".data-card-wrap{width:100%}"));
     assert!(STYLE.contains(
-        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg{display:block;width:100%"
+        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg,.d3-smart-svg{display:block;width:100%"
     ));
     assert!(CLIENT_SCRIPT.contains("window.addEventListener('resize'"));
 }

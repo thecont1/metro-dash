@@ -111,7 +111,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0}
 .chart-deck{font-family:var(--font-display);font-style:italic;font-size:.95rem;color:var(--ink-muted);max-width:62ch;margin:0 0 8px}
 .chart-shell{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
-.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .baseline-wrap,.chart-shell.d3-enhanced .waterfall-wrap,.chart-shell.d3-enhanced .mix-wrap,.chart-shell.d3-enhanced .ncmc-wrap,.chart-shell.d3-enhanced .qr-ssr-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .baseline-wrap,.chart-shell.d3-enhanced .waterfall-wrap,.chart-shell.d3-enhanced .mix-wrap,.chart-shell.d3-enhanced .ncmc-wrap,.chart-shell.d3-enhanced .qr-ssr-wrap,.chart-shell.d3-enhanced .smart-ssr-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .chart-shell.has-render{position:relative}
 .chart-pager{display:flex;gap:16px;align-items:center;justify-content:flex-end;flex-wrap:wrap;min-width:0}
 .chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:8px 4px;min-height:24px;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
@@ -131,10 +131,10 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    the .d3-enhanced clip is the only switch between SSR and D3 scenes.
    Content sizes itself to fit inside the parent so a wide calendar
    shrinks on narrow viewports instead of forcing a horizontal scrollbar. */
-.calendar-wrap,.line-chart-wrap,.baseline-wrap,.waterfall-wrap,.mix-wrap,.ncmc-wrap,.qr-ssr-wrap{flex:1 1 auto;min-height:0}
+.calendar-wrap,.line-chart-wrap,.baseline-wrap,.waterfall-wrap,.mix-wrap,.ncmc-wrap,.qr-ssr-wrap,.smart-ssr-wrap{flex:1 1 auto;min-height:0}
 .d3-scene{flex:0 1 auto;min-height:0;min-width:0}
 .d3-scene[hidden]{display:none}
-.d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
+.d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg,.d3-smart-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
 .d3-line-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px}
 .d3-line-scene .d3-line-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
 .d3-line-scene .d3-insight{flex:0 0 auto}
@@ -267,6 +267,24 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .d3-qr-scene .d3-insight{flex:0 0 auto;margin-bottom:4px}
 .d3-qr-scene .d3-qr-svg.mix-narrow{flex:0 0 auto}
 .d3-qr-segment:focus,.d3-qr-total:focus{outline:none;stroke:var(--ink);stroke-width:2}
+/* Smart Card subtype mix */
+.mix-stored-value,.smart-stored-value{fill:var(--accent);background:var(--accent)}
+.mix-one-day-pass,.smart-one-day-pass{fill:#c8a44d;background:#c8a44d}
+.mix-three-day-pass,.smart-three-day-pass{fill:#3f9d69;background:#3f9d69}
+.mix-five-day-pass,.smart-five-day-pass{fill:#d95f4f;background:#d95f4f}
+.smart-ssr-months{display:grid;gap:8px;margin:16px 0}
+.smart-ssr-month{display:grid;grid-template-columns:64px 1fr minmax(100px,auto);gap:10px;align-items:center;font-size:.78rem}
+.smart-ssr-label{font-weight:700}
+.smart-ssr-bar{display:flex;height:16px;overflow:hidden;border-radius:2px;background:var(--surface)}
+.smart-segment{display:block;height:100%}
+.smart-ssr-gap{color:var(--muted);font-size:.72rem}
+.smart-ssr-meta{color:var(--muted);font-family:var(--font-mono);font-size:.68rem;text-align:right}
+.smart-empty{margin:32px auto;color:var(--muted);font:600 .95rem var(--font-body);text-align:center;max-width:52ch}
+.d3-smart-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.d3-smart-scene .d3-smart-svg{flex:1 1 0;min-height:0;height:auto;max-height:none}
+.d3-smart-scene .d3-insight{flex:0 0 auto;margin-bottom:4px}
+.d3-smart-scene .d3-smart-svg.mix-narrow{flex:0 0 auto}
+.d3-smart-segment:focus,.d3-smart-total:focus{outline:none;stroke:var(--ink);stroke-width:2}
 /* Component-delta waterfall */
 .waterfall-wrap{width:100%}
 .waterfall-chart{display:block;width:100%;max-width:100%;height:auto}
@@ -370,8 +388,8 @@ body.chart-data-card .prepare-band{display:none}
 body.chart-data-card .chart-stage{justify-content:center}
 body.chart-data-card .chart-shell{justify-content:center}
 body.chart-data-card .d3-datacard-scene{position:absolute;pointer-events:none;width:0;height:0;overflow:visible}
-body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap,body.chart-weekday-baseline .data-card-wrap,body.chart-component-waterfall .data-card-wrap,body.chart-fare-media-mix .data-card-wrap,body.chart-ncmc-share .data-card-wrap,body.chart-qr-channel-mix .data-card-wrap{display:none}
-body.chart-data-card .legend,body.chart-commute-casual .legend,body.chart-weekday-baseline .legend,body.chart-component-waterfall .legend,body.chart-fare-media-mix .legend,body.chart-ncmc-share .legend,body.chart-qr-channel-mix .legend{display:none}
+body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap,body.chart-weekday-baseline .data-card-wrap,body.chart-component-waterfall .data-card-wrap,body.chart-fare-media-mix .data-card-wrap,body.chart-ncmc-share .data-card-wrap,body.chart-qr-channel-mix .data-card-wrap,body.chart-smart-card-mix .data-card-wrap{display:none}
+body.chart-data-card .legend,body.chart-commute-casual .legend,body.chart-weekday-baseline .legend,body.chart-component-waterfall .legend,body.chart-fare-media-mix .legend,body.chart-ncmc-share .legend,body.chart-qr-channel-mix .legend,body.chart-smart-card-mix .legend{display:none}
 .data-card-wrap{width:100%}
 .data-card-inner{background:var(--paper);border:1px solid var(--hairline);border-radius:12px;padding:28px 32px;display:flex;flex-direction:column;gap:24px}
 .dc-top-story{display:flex;flex-direction:column;gap:20px}

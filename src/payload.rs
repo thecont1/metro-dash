@@ -6,9 +6,10 @@ use crate::charts::{
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
-    FareMixMonth, NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord, WeekdayBaselinePoint,
-    component_waterfall, fare_mix_series, last_n_months_range, ncmc_share_series, qr_mix_series,
-    record_index, summarise, weekday_baseline_series,
+    FareMixMonth, NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth,
+    WeekdayBaselinePoint, component_waterfall, fare_mix_series, last_n_months_range,
+    ncmc_share_series, qr_mix_series, record_index, smart_mix_series, summarise,
+    weekday_baseline_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -144,6 +145,7 @@ pub struct PayloadCharts {
     pub fare_media_mix: FareMediaMixPayload,
     pub ncmc_share: NcmcSharePayload,
     pub qr_mix: FareMediaMixPayload,
+    pub smart_mix: FareMediaMixPayload,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -346,6 +348,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let fare_media_mix = fare_mix_payload(&fare_mix_series(dataset, range));
     let ncmc_share = ncmc_share_payload(&ncmc_share_series(dataset, range));
     let qr_mix = qr_mix_payload(&qr_mix_series(dataset, range));
+    let smart_mix = smart_mix_payload(&smart_mix_series(dataset, range));
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -402,6 +405,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             fare_media_mix,
             ncmc_share,
             qr_mix,
+            smart_mix,
         },
         presets: range_presets(dataset)
             .iter()
@@ -604,6 +608,73 @@ fn qr_mix_payload(months: &[QrMixMonth]) -> FareMediaMixPayload {
         )
     } else {
         "Not enough complete months in the selected range to compare QR channels.".to_string()
+    };
+    FareMediaMixPayload {
+        months: month_payloads,
+        insight,
+    }
+}
+
+fn smart_mix_payload(months: &[SmartMixMonth]) -> FareMediaMixPayload {
+    let month_payloads = months
+        .iter()
+        .map(|month| {
+            let components = crate::data::SMART_SUBTYPE_CATEGORIES
+                .iter()
+                .enumerate()
+                .map(|(index, (key, label))| {
+                    let value = month.subtypes[index];
+                    let share = month
+                        .has_mix()
+                        .then(|| value / month.subtype_total);
+                    FareMixComponentPayload {
+                        key,
+                        label,
+                        value,
+                        value_label: format_number_full(value),
+                        share,
+                        share_label: share.map(percent_label),
+                        tooltip: format!(
+                            "{} · {}: {} ({} of Smart Card subtypes), {} complete of {} published days",
+                            month.month.format("%b %Y"),
+                            label,
+                            format_number_full(value),
+                            share.map(percent_label).unwrap_or_else(|| "—".into()),
+                            month.complete_days,
+                            month.published_days
+                        ),
+                    }
+                })
+                .collect();
+            FareMixMonthPayload {
+                month: month.month.to_string(),
+                label: month.month.format("%b ’%y").to_string(),
+                published_days: month.published_days,
+                complete_days: month.complete_days,
+                total: month.has_mix().then_some(month.parent_smart_total),
+                total_label: month
+                    .has_mix()
+                    .then(|| format_number_full(month.parent_smart_total)),
+                components,
+            }
+        })
+        .collect::<Vec<_>>();
+    let usable: Vec<&SmartMixMonth> = months.iter().filter(|month| month.has_mix()).collect();
+    let insight = if usable.len() >= 2 {
+        let first = usable.first().expect("nonempty");
+        let last = usable.last().expect("nonempty");
+        let share_of =
+            |month: &SmartMixMonth, index: usize| month.subtypes[index] / month.subtype_total;
+        format!(
+            "Stored Value {} → {}; One Day Pass {} → {} of Smart Card subtypes.",
+            percent_label(share_of(first, 0)),
+            percent_label(share_of(last, 0)),
+            percent_label(share_of(first, 1)),
+            percent_label(share_of(last, 1))
+        )
+    } else {
+        "Not enough complete months in the selected range to compare Smart Card subtypes."
+            .to_string()
     };
     FareMediaMixPayload {
         months: month_payloads,
