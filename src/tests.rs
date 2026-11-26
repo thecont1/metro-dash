@@ -8,9 +8,10 @@ use crate::charts::{Chart, band_label, calendar_markup, line_chart_markup};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
     BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
-    component_waterfall, fare_mix_series, month_weekday_matrix, ncmc_share_series, parse_dataset,
-    qr_mix_series, quantile, smart_mix_series, summarise, weekday_baseline_series,
-    weekday_distribution_series, weekend_signature_series,
+    component_waterfall, fare_mix_series, field_completeness_grid, month_weekday_matrix,
+    monthly_estimate_series, ncmc_share_series, parse_dataset, qr_mix_series, quantile,
+    reporting_pulse_series, smart_mix_series, summarise, variability_ranking,
+    weekday_baseline_series, weekday_distribution_series, weekend_signature_series,
 };
 use crate::payload::chart_payload_for;
 use crate::render::{chart_jump_markup, parse_query, range_action_links};
@@ -168,6 +169,50 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
     assert_eq!(target.lower_quartile, Some(112.5));
     assert_eq!(target.upper_quartile, Some(137.5));
     assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
+fn audit_and_estimation_series_preserve_missing_semantics() {
+    let csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n\
+01-01-2024,40,10,20,10,20\n\
+03-01-2024,80,20,40,20,40\n";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let range = DateRange {
+        start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        end: NaiveDate::from_ymd_opt(2024, 1, 7).unwrap(),
+    };
+    let variability = variability_ranking(&dataset, range);
+    assert_eq!(variability.len(), 5);
+    assert!(variability.iter().all(|row| row.n == 2));
+    let pulse = reporting_pulse_series(&dataset, range);
+    assert_eq!(pulse[0].calendar_days, 7);
+    assert_eq!(pulse[0].observed_days, 2);
+    assert_eq!(pulse[0].missing_days, 5);
+    let estimates = monthly_estimate_series(&dataset, range);
+    assert_eq!(estimates[0].observed_total, 300.0);
+    assert_eq!(estimates[0].missing_days, 5);
+    assert!(estimates[0].estimated_missing_total.is_some());
+    let fields = field_completeness_grid(&dataset, range);
+    assert_eq!(fields[0].published_days, 2);
+    assert_eq!(fields[0].total_derivable_days, 2);
+    assert_eq!(
+        fields[0]
+            .cells
+            .iter()
+            .find(|cell| cell.key == "smart-card")
+            .unwrap()
+            .present_days,
+        2
+    );
+    assert_eq!(
+        fields[0]
+            .cells
+            .iter()
+            .find(|cell| cell.key == "stored-value")
+            .unwrap()
+            .present_days,
+        0
+    );
 }
 
 #[test]
@@ -645,6 +690,26 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
         serde_json::to_string(&payload)
             .unwrap()
             .contains("monthWeekdayMatrix")
+    );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("variabilityRanking")
+    );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("reportingPulse")
+    );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("monthlyEstimates")
+    );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("fieldCompleteness")
     );
     assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);

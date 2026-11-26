@@ -164,6 +164,10 @@ Two paths feed the same `Dataset` type:
 - `weekday_distribution_series()` computes total-ridership quartiles and observed ranges by weekday without imputing missing dates
 - `weekend_signature_series()` groups complete parent-component days into Monday–Friday, Saturday, and Sunday panels
 - `month_weekday_matrix()` computes observed median ratios and sample sizes for every month-weekday cell without imputation
+- `variability_ranking()` ranks parent categories by robust IQR, absolute and relative to median
+- `reporting_pulse_series()` measures monthly calendar coverage and longest unpublished runs
+- `monthly_estimate_series()` separates observed sums from same-month/weekday mean fills and ±20% sensitivity endpoints
+- `field_completeness_grid()` counts nonblank source fields over published rows by month
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -183,6 +187,10 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 10. **Weekday distributions (`weekday-distributions`)** — Median/IQR/full-range distribution for each weekday
 11. **Weekend signatures (`weekend-signatures`)** — Day-group total distributions plus aggregate fare-media shares
 12. **Month-by-weekday matrix (`month-weekday-matrix`)** — Monthly weekday medians as ratios to selected-range weekday baselines
+13. **Variability ranking (`variability-ranking`)** — Parent-category IQR and IQR/median ranking
+14. **Reporting pulse (`reporting-pulse`)** — Monthly published/calendar coverage and longest gaps
+15. **Monthly estimates (`monthly-estimates`)** — Observed sums plus clearly separated weekday-based gap estimates
+16. **Field completeness (`field-completeness`)** — Month-by-field nonblank coverage grid
 
 ### Adding a new chart
 

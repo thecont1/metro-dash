@@ -205,6 +205,56 @@ impl SmartMixMonth {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct CategoryVariability {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub n: usize,
+    pub median: Option<f64>,
+    pub iqr: Option<f64>,
+    pub relative_iqr: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReportingPulseMonth {
+    pub month: NaiveDate,
+    pub calendar_days: usize,
+    pub observed_days: usize,
+    pub missing_days: usize,
+    pub coverage: f64,
+    pub longest_missing_run: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MonthlyEstimate {
+    pub month: NaiveDate,
+    pub calendar_days: usize,
+    pub observed_days: usize,
+    pub missing_days: usize,
+    pub coverage: f64,
+    pub observed_total: f64,
+    pub estimated_missing_total: Option<f64>,
+    pub low_total: Option<f64>,
+    pub high_total: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldCompletenessCell {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub present_days: usize,
+    pub published_days: usize,
+    pub share: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldCompletenessMonth {
+    pub month: NaiveDate,
+    pub published_days: usize,
+    pub total_derivable_days: usize,
+    pub cells: Vec<FieldCompletenessCell>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct MonthWeekdayCell {
     pub month: NaiveDate,
     pub weekday: Weekday,
@@ -1068,6 +1118,230 @@ fn smart_subtype_components(record: &RidershipRecord) -> Option<[f64; 4]> {
         record.three_day_pass?,
         record.five_day_pass?,
     ])
+}
+
+/// Rank parent-category variability using the interquartile range, both in
+/// counts and relative to the category median. Each category uses its own
+/// published parent values; blanks are omitted rather than zero-filled.
+pub fn variability_ranking(dataset: &Dataset, range: DateRange) -> Vec<CategoryVariability> {
+    let mapping = &dataset.field_mapping;
+    let headers = [
+        mapping.smart_card.as_deref(),
+        mapping.ncmc.as_deref(),
+        mapping.token.as_deref(),
+        mapping.qr.as_deref(),
+        mapping.group_ticket.as_deref(),
+    ];
+    let mut rows: Vec<CategoryVariability> = WATERFALL_CATEGORIES
+        .iter()
+        .enumerate()
+        .map(|(index, (key, label))| {
+            let values: Vec<f64> = dataset
+                .records
+                .iter()
+                .filter(|record| record.date >= range.start && record.date <= range.end)
+                .filter_map(|record| raw_parent_value(record, headers[index]))
+                .collect();
+            let median = quantile(&values, 0.5);
+            let iqr = match (quantile(&values, 0.25), quantile(&values, 0.75)) {
+                (Some(q1), Some(q3)) => Some(q3 - q1),
+                _ => None,
+            };
+            CategoryVariability {
+                key,
+                label,
+                n: values.len(),
+                median,
+                iqr,
+                relative_iqr: match (iqr, median) {
+                    (Some(iqr), Some(median)) if median != 0.0 => Some(iqr / median),
+                    _ => None,
+                },
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        b.relative_iqr
+            .unwrap_or(-1.0)
+            .total_cmp(&a.relative_iqr.unwrap_or(-1.0))
+            .then_with(|| b.iqr.unwrap_or(-1.0).total_cmp(&a.iqr.unwrap_or(-1.0)))
+    });
+    rows
+}
+
+/// Monthly reporting completeness within the selected range. Missing means no
+/// published row for a calendar day, never zero ridership.
+pub fn reporting_pulse_series(dataset: &Dataset, range: DateRange) -> Vec<ReportingPulseMonth> {
+    let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+        .expect("valid month start");
+    let mut months = Vec::new();
+    while cursor <= range.end {
+        let next_month = cursor
+            .checked_add_months(Months::new(1))
+            .expect("valid next month");
+        let month_end = (next_month - Duration::days(1)).min(range.end);
+        let start = cursor.max(range.start);
+        let mut calendar_days = 0;
+        let mut observed_days = 0;
+        let mut longest_missing_run = 0;
+        let mut current_missing_run = 0;
+        let mut date = start;
+        while date <= month_end {
+            calendar_days += 1;
+            if dataset.records.iter().any(|record| record.date == date) {
+                observed_days += 1;
+                current_missing_run = 0;
+            } else {
+                current_missing_run += 1;
+                longest_missing_run = longest_missing_run.max(current_missing_run);
+            }
+            date += Duration::days(1);
+        }
+        months.push(ReportingPulseMonth {
+            month: cursor,
+            calendar_days,
+            observed_days,
+            missing_days: calendar_days - observed_days,
+            coverage: observed_days as f64 / calendar_days.max(1) as f64,
+            longest_missing_run,
+        });
+        cursor = next_month;
+    }
+    months
+}
+
+/// Estimate monthly scale by filling unpublished days with same-month,
+/// same-weekday means, falling back to the month's overall mean. The ±20%
+/// sensitivity endpoints are descriptive alternatives, not confidence intervals.
+pub fn monthly_estimate_series(dataset: &Dataset, range: DateRange) -> Vec<MonthlyEstimate> {
+    let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+        .expect("valid month start");
+    let mut months = Vec::new();
+    while cursor <= range.end {
+        let next_month = cursor
+            .checked_add_months(Months::new(1))
+            .expect("valid next month");
+        let month_end = (next_month - Duration::days(1)).min(range.end);
+        let start = cursor.max(range.start);
+        let observed: Vec<&RidershipRecord> = dataset
+            .records
+            .iter()
+            .filter(|record| record.date >= start && record.date <= month_end)
+            .collect();
+        let totals: Vec<f64> = observed
+            .iter()
+            .filter_map(|record| record.total_ridership)
+            .collect();
+        let observed_total: f64 = totals.iter().sum();
+        let overall_mean = (!totals.is_empty()).then(|| observed_total / totals.len() as f64);
+        let mut calendar_days = 0;
+        let mut missing_days = 0;
+        let mut estimated_missing_total = 0.0;
+        let mut can_estimate = true;
+        let mut date = start;
+        while date <= month_end {
+            calendar_days += 1;
+            if !observed.iter().any(|record| record.date == date) {
+                missing_days += 1;
+                let weekday_values: Vec<f64> = observed
+                    .iter()
+                    .filter(|record| record.date.weekday() == date.weekday())
+                    .filter_map(|record| record.total_ridership)
+                    .collect();
+                let fill = if !weekday_values.is_empty() {
+                    Some(weekday_values.iter().sum::<f64>() / weekday_values.len() as f64)
+                } else {
+                    overall_mean
+                };
+                if let Some(fill) = fill {
+                    estimated_missing_total += fill;
+                } else {
+                    can_estimate = false;
+                }
+            }
+            date += Duration::days(1);
+        }
+        let estimated = (can_estimate && missing_days > 0).then_some(estimated_missing_total);
+        months.push(MonthlyEstimate {
+            month: cursor,
+            calendar_days,
+            observed_days: totals.len(),
+            missing_days,
+            coverage: totals.len() as f64 / calendar_days.max(1) as f64,
+            observed_total,
+            estimated_missing_total: estimated,
+            low_total: estimated.map(|estimate| observed_total + estimate * 0.8),
+            high_total: estimated.map(|estimate| observed_total + estimate * 1.2),
+        });
+        cursor = next_month;
+    }
+    months
+}
+
+/// Month-by-field nonblank completeness over published rows, plus a derived-total
+/// indicator. This measures field coverage, not correctness.
+pub fn field_completeness_grid(dataset: &Dataset, range: DateRange) -> Vec<FieldCompletenessMonth> {
+    let mapping = &dataset.field_mapping;
+    let specs: Vec<(&'static str, &'static str, Option<&str>)> = vec![
+        ("smart-card", "Smart Cards", mapping.smart_card.as_deref()),
+        ("ncmc", "NCMC", mapping.ncmc.as_deref()),
+        ("token", "Tokens", mapping.token.as_deref()),
+        ("qr", "QR", mapping.qr.as_deref()),
+        ("group-ticket", "Group", mapping.group_ticket.as_deref()),
+        ("stored-value", "Stored", mapping.stored_value.as_deref()),
+        ("one-day-pass", "1-Day", mapping.one_day_pass.as_deref()),
+        ("three-day-pass", "3-Day", mapping.three_day_pass.as_deref()),
+        ("five-day-pass", "5-Day", mapping.five_day_pass.as_deref()),
+        ("qr-namma", "QR Namma", mapping.qr_namma.as_deref()),
+        ("qr-whatsapp", "QR WhatsApp", mapping.qr_whatsapp.as_deref()),
+        ("qr-paytm", "QR Paytm", mapping.qr_paytm.as_deref()),
+        ("qr-ondc", "QR ONDC", mapping.qr_ondc.as_deref()),
+    ];
+    let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+        .expect("valid month start");
+    let mut months = Vec::new();
+    while cursor <= range.end {
+        let next_month = cursor
+            .checked_add_months(Months::new(1))
+            .expect("valid next month");
+        let month_end = (next_month - Duration::days(1)).min(range.end);
+        let rows: Vec<&RidershipRecord> = dataset
+            .records
+            .iter()
+            .filter(|record| record.date >= cursor.max(range.start) && record.date <= month_end)
+            .collect();
+        let cells = specs
+            .iter()
+            .map(|(key, label, header)| {
+                let present_days = rows
+                    .iter()
+                    .filter(|record| {
+                        header
+                            .and_then(|header| record.raw_fields.get(header))
+                            .is_some_and(|value| !value.trim().is_empty())
+                    })
+                    .count();
+                FieldCompletenessCell {
+                    key,
+                    label,
+                    present_days,
+                    published_days: rows.len(),
+                    share: (!rows.is_empty()).then(|| present_days as f64 / rows.len() as f64),
+                }
+            })
+            .collect();
+        months.push(FieldCompletenessMonth {
+            month: cursor,
+            published_days: rows.len(),
+            total_derivable_days: rows
+                .iter()
+                .filter(|record| record.total_ridership.is_some())
+                .count(),
+            cells,
+        });
+        cursor = next_month;
+    }
+    months
 }
 
 /// Month-by-weekday medians expressed as ratios to that weekday's overall

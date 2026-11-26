@@ -2,7 +2,7 @@
 
 **Live site:** <https://namma.thecontrarian.in> (static site on Cloudflare Pages)
 
-A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL ridership CSV into twelve interactive charts, with no sign-up or downloads needed.
+A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL ridership CSV into sixteen interactive charts, with no sign-up or downloads needed.
 
 ## What it shows
 
@@ -18,6 +18,10 @@ A simple, public view of Bengaluru Metro ridership. It turns the daily BMRCL rid
 10. **How Predictable is Each Weekday?** — median, interquartile range, full observed range, and sample size for each weekday. *Method note:* distributions use published derived totals only; missing reports are omitted rather than zero-filled. Variability is descriptive and is not evidence of crowding, capacity pressure, or rider demographics.
 11. **How Does the Weekend Signature Differ?** — Monday–Friday, Saturday, and Sunday total distributions beside aggregate fare-media shares. *Method note:* each panel uses only days with complete published parent components so distributions and shares share the same evidence base. Day groups are calendar labels, not observed commuter/leisure identities, and cannot support demographic or trip-purpose conclusions.
 12. **Does the Weekday Pattern Vary by Month?** — a month-by-weekday matrix of median totals as ratios to that weekday’s overall baseline. *Method note:* cells use observed totals only and display n; empty cells have no published totals. Ratios are descriptive, unstable with small samples, and do not identify seasonal causes.
+13. **Which Fare Media Vary Most?** — parent categories ranked by IQR relative to median, with absolute IQR and n. *Method note:* blanks are omitted per category; variability can reflect growth, gaps, or recording changes rather than crowding.
+14. **How Complete is the Reporting Record?** — monthly observed versus calendar days and longest unpublished runs. *Method note:* missing means no published row, not zero ridership or no service.
+15. **What if Reporting Gaps are Filled?** — observed monthly sums separated from weekday-based estimates for unpublished days, with coverage and ±20% sensitivity endpoints. *Method note:* estimates are descriptive illustrations, not official totals or confidence intervals.
+16. **Are Some Fields Less Complete?** — month-by-field nonblank coverage for parent categories, subtypes, providers, and derived totals. *Method note:* completeness is measured over published rows and cannot prove the values are correct; the derived total is not an independent official total.
 
 ## How to use it
 

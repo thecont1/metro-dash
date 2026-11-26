@@ -8,14 +8,16 @@ use topcoat::{
 
 use crate::charts::{
     CHARTS, Chart, baseline_chart_markup, calendar_markup, data_card_markup, escape_attr,
-    fare_mix_chart_markup, line_chart_markup, month_weekday_matrix_markup, ncmc_share_chart_markup,
-    qr_mix_chart_markup, smart_mix_chart_markup, waterfall_chart_markup,
-    weekday_distribution_chart_markup, weekend_signature_chart_markup,
+    fare_mix_chart_markup, field_completeness_markup, line_chart_markup,
+    month_weekday_matrix_markup, monthly_estimates_markup, ncmc_share_chart_markup,
+    qr_mix_chart_markup, reporting_pulse_markup, smart_mix_chart_markup, variability_markup,
+    waterfall_chart_markup, weekday_distribution_chart_markup, weekend_signature_chart_markup,
 };
 use crate::client::{CLIENT_SCRIPT, WRAPPER_CLOSE, WRAPPER_OPEN};
 use crate::data::{
     Dataset, DateRange, SOURCE_PAGE_URL, choose_range, component_waterfall, fare_mix_series,
-    month_weekday_matrix, ncmc_share_series, qr_mix_series, record_index, smart_mix_series,
+    field_completeness_grid, month_weekday_matrix, monthly_estimate_series, ncmc_share_series,
+    qr_mix_series, record_index, reporting_pulse_series, smart_mix_series, variability_ranking,
     weekday_baseline_series, weekday_distribution_series, weekend_signature_series,
 };
 use crate::payload::{chart_payload_for, range_presets};
@@ -170,6 +172,14 @@ pub async fn render_view(cx: &Cx, dataset: Dataset, query: QueryState, chart: Ch
         }
         Chart::MonthWeekdayMatrix => {
             month_weekday_matrix_markup(&month_weekday_matrix(&dataset, range))
+        }
+        Chart::VariabilityRanking => variability_markup(&variability_ranking(&dataset, range)),
+        Chart::ReportingPulse => reporting_pulse_markup(&reporting_pulse_series(&dataset, range)),
+        Chart::MonthlyEstimates => {
+            monthly_estimates_markup(&monthly_estimate_series(&dataset, range))
+        }
+        Chart::FieldCompleteness => {
+            field_completeness_markup(&field_completeness_grid(&dataset, range))
         }
     };
     let start_date_selects = date_select_markup(

@@ -39,8 +39,8 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
   let computeState = 'pending';
   let computeSettled = null;
 
-  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true, 'qr-channel-mix': true, 'smart-card-mix': true, 'weekday-distributions': true, 'weekend-signatures': true, 'month-weekday-matrix': true };
-  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share', 'qr-channel-mix', 'smart-card-mix', 'weekday-distributions', 'weekend-signatures', 'month-weekday-matrix'];
+  const chartRegistry = { 'data-card': true, 'calendar': true, 'commute-casual': true, 'weekday-baseline': true, 'component-waterfall': true, 'fare-media-mix': true, 'ncmc-share': true, 'qr-channel-mix': true, 'smart-card-mix': true, 'weekday-distributions': true, 'weekend-signatures': true, 'month-weekday-matrix': true, 'variability-ranking': true, 'reporting-pulse': true, 'monthly-estimates': true, 'field-completeness': true };
+  const chartOrder = ['data-card', 'calendar', 'commute-casual', 'weekday-baseline', 'component-waterfall', 'fare-media-mix', 'ncmc-share', 'qr-channel-mix', 'smart-card-mix', 'weekday-distributions', 'weekend-signatures', 'month-weekday-matrix', 'variability-ranking', 'reporting-pulse', 'monthly-estimates', 'field-completeness'];
   if (chartJump) {
     chartJump.querySelectorAll('option').forEach((option) => {
       if (!chartRegistry[option.value]) option.remove();
@@ -1636,6 +1636,27 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     choreograph(scene.node());
   };
 
+
+  const renderHtmlPayloadChart = (sceneClass, html, emptyMessage) => {
+    const scene = ensureScene(sceneClass);
+    scene.html(html || `<p class="html-chart-empty">${emptyMessage}</p>`);
+    // Payload HTML reuses the SSR root class. Strip that fallback marker inside
+    // the D3 scene so progressive-enhancement hiding only applies to the SSR node.
+    scene.select('.variability-ssr-wrap,.pulse-ssr-wrap,.estimate-ssr-wrap,.fields-ssr-wrap')
+      .classed('variability-ssr-wrap', false).classed('pulse-ssr-wrap', false)
+      .classed('estimate-ssr-wrap', false).classed('fields-ssr-wrap', false);
+    if (D3) bindTooltip(scene.selectAll('[data-tooltip]'));
+    if (canAnimate && GSAP) {
+      GSAP.fromTo(scene.selectAll('.html-anim').nodes(), {opacity: 0, y: 8}, {opacity: 1, y: 0, duration: .3, stagger: .025, ease: 'power2.out'});
+    }
+    choreograph(scene.node());
+  };
+
+  const renderVariabilityRanking = () => renderHtmlPayloadChart('d3-variability-scene', payload.charts.variabilityRanking?.html, 'No variability ranking is available in the selected range.');
+  const renderReportingPulse = () => renderHtmlPayloadChart('d3-pulse-scene', payload.charts.reportingPulse?.html, 'No reporting completeness data is available in the selected range.');
+  const renderMonthlyEstimates = () => renderHtmlPayloadChart('d3-estimate-scene', payload.charts.monthlyEstimates?.html, 'No monthly estimates are available in the selected range.');
+  const renderFieldCompleteness = () => renderHtmlPayloadChart('d3-fields-scene', payload.charts.fieldCompleteness?.html, 'No field completeness data is available in the selected range.');
+
   const renderActiveChart = (animate = true) => {
     hideTooltipImmediately();
     syncChartChrome();
@@ -1650,7 +1671,11 @@ pub(crate) const CLIENT_SCRIPT: &str = r#"(() => {
     else if (activeChart === 'smart-card-mix') renderSmartMix(animate);
     else if (activeChart === 'weekday-distributions') renderWeekdayDistribution(animate);
     else if (activeChart === 'weekend-signatures') renderWeekendSignatures(animate);
-    else renderMonthWeekdayMatrix(animate);
+    else if (activeChart === 'month-weekday-matrix') renderMonthWeekdayMatrix(animate);
+    else if (activeChart === 'variability-ranking') renderVariabilityRanking();
+    else if (activeChart === 'reporting-pulse') renderReportingPulse();
+    else if (activeChart === 'monthly-estimates') renderMonthlyEstimates();
+    else renderFieldCompleteness();
   };
 
   // The static site ships a wasm compute core; when present, range changes

@@ -111,7 +111,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .chart-stage h2{font-family:var(--font-body);font-size:clamp(1.3rem,2.4vw,1.85rem);font-weight:800;letter-spacing:-.02em;color:var(--ink);margin:0}
 .chart-deck{font-family:var(--font-display);font-style:italic;font-size:.95rem;color:var(--ink-muted);max-width:62ch;margin:0 0 8px}
 .chart-shell{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
-.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .baseline-wrap,.chart-shell.d3-enhanced .waterfall-wrap,.chart-shell.d3-enhanced .mix-wrap,.chart-shell.d3-enhanced .ncmc-wrap,.chart-shell.d3-enhanced .qr-ssr-wrap,.chart-shell.d3-enhanced .smart-ssr-wrap,.chart-shell.d3-enhanced .dist-ssr-wrap,.chart-shell.d3-enhanced .signature-ssr-wrap,.chart-shell.d3-enhanced .matrix-ssr-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.chart-shell.d3-enhanced .calendar-wrap,.chart-shell.d3-enhanced .line-chart-wrap,.chart-shell.d3-enhanced .baseline-wrap,.chart-shell.d3-enhanced .waterfall-wrap,.chart-shell.d3-enhanced .mix-wrap,.chart-shell.d3-enhanced .ncmc-wrap,.chart-shell.d3-enhanced .qr-ssr-wrap,.chart-shell.d3-enhanced .smart-ssr-wrap,.chart-shell.d3-enhanced .dist-ssr-wrap,.chart-shell.d3-enhanced .signature-ssr-wrap,.chart-shell.d3-enhanced .matrix-ssr-wrap,.chart-shell.d3-enhanced .variability-ssr-wrap,.chart-shell.d3-enhanced .pulse-ssr-wrap,.chart-shell.d3-enhanced .estimate-ssr-wrap,.chart-shell.d3-enhanced .fields-ssr-wrap,.chart-shell.d3-enhanced .accessible-data{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .chart-shell.has-render{position:relative}
 .chart-pager{display:flex;gap:16px;align-items:center;justify-content:flex-end;flex-wrap:wrap;min-width:0}
 .chart-pager .arrow-button{display:inline-flex;align-items:center;gap:4px;width:max-content;padding:8px 4px;min-height:24px;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-weight:800;font-size:.85rem;letter-spacing:.01em;text-decoration:none}
@@ -131,7 +131,7 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
    the .d3-enhanced clip is the only switch between SSR and D3 scenes.
    Content sizes itself to fit inside the parent so a wide calendar
    shrinks on narrow viewports instead of forcing a horizontal scrollbar. */
-.calendar-wrap,.line-chart-wrap,.baseline-wrap,.waterfall-wrap,.mix-wrap,.ncmc-wrap,.qr-ssr-wrap,.smart-ssr-wrap,.dist-ssr-wrap,.signature-ssr-wrap,.matrix-ssr-wrap{flex:1 1 auto;min-height:0}
+.calendar-wrap,.line-chart-wrap,.baseline-wrap,.waterfall-wrap,.mix-wrap,.ncmc-wrap,.qr-ssr-wrap,.smart-ssr-wrap,.dist-ssr-wrap,.signature-ssr-wrap,.matrix-ssr-wrap,.variability-ssr-wrap,.pulse-ssr-wrap,.estimate-ssr-wrap,.fields-ssr-wrap{flex:1 1 auto;min-height:0}
 .d3-scene{flex:0 1 auto;min-height:0;min-width:0}
 .d3-scene[hidden]{display:none}
 .d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg,.d3-smart-svg,.d3-dist-svg,.d3-signature-svg{display:block;width:100%;height:100%;max-width:100%;max-height:100%}
@@ -330,6 +330,36 @@ code,.mono{font-family:var(--font-mono);font-size:.92em;background:#0000000d;pad
 .matrix-key{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;border:1px solid var(--border)}
 .matrix-key.matrix-high{background:var(--accent)}.matrix-key.matrix-low{background:#d95f4f}.matrix-key.matrix-neutral{background:#9b93ad}.matrix-key.matrix-empty{background:var(--surface)}
 .matrix-empty{margin:32px auto;color:var(--muted);font:600 .95rem var(--font-body);text-align:center}
+/* HTML analytical charts */
+.d3-variability-scene,.d3-pulse-scene,.d3-estimate-scene,.d3-fields-scene{display:flex;flex-direction:column;flex:1 1 auto;min-height:240px;overflow:hidden}
+.html-chart{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+.ranking-list,.pulse-list,.estimate-list{display:grid;gap:10px;margin:12px 0 8px;align-content:start}
+.ranking-row,.pulse-row,.estimate-row{display:grid;grid-template-columns:120px 1fr minmax(150px,auto);gap:12px;align-items:center;min-height:34px}
+.ranking-row:focus,.pulse-row:focus,.estimate-row:focus,.fields-cell:focus{outline:2px solid var(--ink);outline-offset:2px}
+.ranking-label,.pulse-label,.estimate-label{font:800 .78rem var(--font-body);color:var(--ink)}
+.ranking-value,.pulse-value,.estimate-value{font:700 .66rem var(--font-mono);color:var(--muted);text-align:right}
+.ranking-track,.pulse-track,.estimate-track{position:relative;display:block;height:18px;border:1px solid var(--border);border-radius:3px;background:var(--surface);overflow:hidden}
+.ranking-bar{position:absolute;left:0;top:0;bottom:0;display:block}
+.pulse-observed,.estimate-observed{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+.pulse-missing,.estimate-missing{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(135deg,color-mix(in srgb,#d95f4f 55%,white) 0 5px,color-mix(in srgb,#d95f4f 22%,white) 5px 10px)}
+.estimate-missing{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--accent) 42%,white) 0 5px,color-mix(in srgb,var(--accent) 18%,white) 5px 10px)}
+.pulse-legend,.estimate-legend{display:flex;gap:14px;color:var(--muted);font:650 .72rem var(--font-body);margin:4px 0 8px}
+.pulse-key,.estimate-key{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.pulse-key.observed,.estimate-key.observed{background:var(--accent)}
+.pulse-key.missing{background:repeating-linear-gradient(135deg,#d95f4f 0 3px,#f1c8c3 3px 6px)}
+.estimate-key.missing{background:repeating-linear-gradient(135deg,var(--accent) 0 3px,#d8d2e6 3px 6px)}
+.fields-scroll{flex:1 1 auto;min-height:0;overflow:auto;scrollbar-width:thin;padding-bottom:8px}
+.fields-grid{display:grid;grid-template-columns:70px repeat(14,minmax(70px,1fr));gap:5px;min-width:1120px}
+.fields-heading,.fields-row-label,.fields-corner{display:flex;align-items:center;justify-content:center;color:var(--muted);font:800 .58rem var(--font-mono);text-transform:uppercase;text-align:center}
+.fields-row-label{justify-content:flex-end;padding-right:5px}
+.fields-cell{position:relative;display:flex;min-height:48px;flex-direction:column;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;overflow:hidden;background:var(--surface)}
+.fields-cell::before{content:"";position:absolute;inset:0;background:var(--accent);opacity:calc(.08 + var(--complete,0)*.62)}
+.fields-cell.fields-total::before{background:#3f9d69}
+.fields-cell b,.fields-cell small{position:relative;z-index:1}
+.fields-cell b{font:800 .7rem var(--font-mono)}
+.fields-cell small{font:700 .56rem var(--font-mono);color:var(--muted)}
+.html-chart-empty{margin:32px auto;color:var(--muted);font:600 .95rem var(--font-body);text-align:center}
+@media (max-width:760px){.ranking-row,.pulse-row,.estimate-row{grid-template-columns:82px 1fr;gap:7px}.ranking-value,.pulse-value,.estimate-value{grid-column:2;text-align:left}.ranking-label,.pulse-label,.estimate-label{font-size:.68rem}}
 @media (max-width:700px){.weekday-matrix{grid-template-columns:62px repeat(7,68px);min-width:560px;gap:5px}.matrix-cell{min-height:50px}}
 .signature-legend text,.signature-svg-legend text{fill:var(--muted);font:650 .72rem var(--font-body)}
 .dist-legend,.d3-dist-svg .dist-svg-legend text{fill:var(--muted);font:650 .72rem var(--font-body)}
@@ -436,8 +466,8 @@ body.chart-data-card .prepare-band{display:none}
 body.chart-data-card .chart-stage{justify-content:center}
 body.chart-data-card .chart-shell{justify-content:center}
 body.chart-data-card .d3-datacard-scene{position:absolute;pointer-events:none;width:0;height:0;overflow:visible}
-body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap,body.chart-weekday-baseline .data-card-wrap,body.chart-component-waterfall .data-card-wrap,body.chart-fare-media-mix .data-card-wrap,body.chart-ncmc-share .data-card-wrap,body.chart-qr-channel-mix .data-card-wrap,body.chart-smart-card-mix .data-card-wrap,body.chart-weekday-distributions .data-card-wrap,body.chart-weekend-signatures .data-card-wrap,body.chart-month-weekday-matrix .data-card-wrap{display:none}
-body.chart-data-card .legend,body.chart-commute-casual .legend,body.chart-weekday-baseline .legend,body.chart-component-waterfall .legend,body.chart-fare-media-mix .legend,body.chart-ncmc-share .legend,body.chart-qr-channel-mix .legend,body.chart-smart-card-mix .legend,body.chart-weekday-distributions .legend,body.chart-weekend-signatures .legend,body.chart-month-weekday-matrix .legend{display:none}
+body.chart-calendar .data-card-wrap,body.chart-commute-casual .data-card-wrap,body.chart-weekday-baseline .data-card-wrap,body.chart-component-waterfall .data-card-wrap,body.chart-fare-media-mix .data-card-wrap,body.chart-ncmc-share .data-card-wrap,body.chart-qr-channel-mix .data-card-wrap,body.chart-smart-card-mix .data-card-wrap,body.chart-weekday-distributions .data-card-wrap,body.chart-weekend-signatures .data-card-wrap,body.chart-month-weekday-matrix .data-card-wrap,body.chart-variability-ranking .data-card-wrap,body.chart-reporting-pulse .data-card-wrap,body.chart-monthly-estimates .data-card-wrap,body.chart-field-completeness .data-card-wrap{display:none}
+body.chart-data-card .legend,body.chart-commute-casual .legend,body.chart-weekday-baseline .legend,body.chart-component-waterfall .legend,body.chart-fare-media-mix .legend,body.chart-ncmc-share .legend,body.chart-qr-channel-mix .legend,body.chart-smart-card-mix .legend,body.chart-weekday-distributions .legend,body.chart-weekend-signatures .legend,body.chart-month-weekday-matrix .legend,body.chart-variability-ranking .legend,body.chart-reporting-pulse .legend,body.chart-monthly-estimates .legend,body.chart-field-completeness .legend{display:none}
 .data-card-wrap{width:100%}
 .data-card-inner{background:var(--paper);border:1px solid var(--hairline);border-radius:12px;padding:28px 32px;display:flex;flex-direction:column;gap:24px}
 .dc-top-story{display:flex;flex-direction:column;gap:20px}

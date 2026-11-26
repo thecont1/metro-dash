@@ -4,8 +4,9 @@ use std::fmt::Write as _;
 use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
-    BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, MonthWeekdayMatrix,
-    NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint,
+    BaselineStatus, CategoryVariability, ComponentWaterfall, Dataset, DateRange, FareMixMonth,
+    FieldCompletenessMonth, MonthWeekdayMatrix, MonthlyEstimate, NcmcShareWeek, QrMixMonth,
+    RangeSummary, ReportingPulseMonth, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint,
     WeekdayDistribution, WeekdayMetric, WeekendSignature,
 };
 
@@ -23,6 +24,10 @@ pub enum Chart {
     WeekdayDistribution,
     WeekendSignatures,
     MonthWeekdayMatrix,
+    VariabilityRanking,
+    ReportingPulse,
+    MonthlyEstimates,
+    FieldCompleteness,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,7 +39,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 12] = [
+pub static CHARTS: [ChartDefinition; 16] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -118,6 +123,34 @@ pub static CHARTS: [ChartDefinition; 12] = [
         title: "Does the Weekday Pattern Vary by Month?",
         deck: "Month-by-weekday medians as ratios to each weekday’s overall level in the selected range.",
         method: "Each cell is the median of published daily totals for that month and weekday, divided by the median for that weekday across the whole selected range. Purple is above the weekday baseline, rust below, and grey near it; n appears in every cell. Empty cells have no published totals. Ratios are descriptive and unstable with small samples.",
+    },
+    ChartDefinition {
+        chart: Chart::VariabilityRanking,
+        slug: "variability-ranking",
+        title: "Which Fare Media Vary Most?",
+        deck: "Parent categories ranked by robust day-to-day variability in the selected range.",
+        method: "Categories are ranked by interquartile range relative to their median; labels also show the absolute IQR in journeys and n. Each category uses its own published parent values, blanks are omitted, and zeros remain reported zeros. Variation can reflect growth, reporting gaps, or recording changes — not crowding or vehicle loads.",
+    },
+    ChartDefinition {
+        chart: Chart::ReportingPulse,
+        slug: "reporting-pulse",
+        title: "How Complete is the Reporting Record?",
+        deck: "Monthly observed days, missing days, coverage, and the longest unpublished run.",
+        method: "Observed means a row was published for that calendar day. Missing means no published row; it is not zero ridership and not evidence of no metro service. Coverage and longest-gap calculations use the selected range clipped to each month.",
+    },
+    ChartDefinition {
+        chart: Chart::MonthlyEstimates,
+        slug: "monthly-estimates",
+        title: "What if Reporting Gaps are Filled?",
+        deck: "Monthly observed totals separated from weekday-based estimates for unpublished days.",
+        method: "Observed segments sum published derived totals only. Missing days are filled with same-month, same-weekday means, falling back to the month mean when a weekday has no observations. The range endpoints vary those fills by ±20% as a sensitivity illustration, not a confidence interval or official total. Incomplete months and coverage remain explicit.",
+    },
+    ChartDefinition {
+        chart: Chart::FieldCompleteness,
+        slug: "field-completeness",
+        title: "Are Some Fields Less Complete?",
+        deck: "Month-by-field nonblank coverage for parent categories, Smart Card subtypes, QR providers, and derived totals.",
+        method: "Cells count nonblank source fields over published rows in each month; months with no published rows remain empty. Total derivable is the app's derived total, not an independent official total. Completeness shows whether periods are safe to compare, but cannot prove component values are correct.",
     },
 ];
 
@@ -949,6 +982,345 @@ fn matrix_cell_tooltip(cell: &crate::data::MonthWeekdayCell) -> String {
             cell.n
         )
     }
+}
+
+pub fn variability_insight(rows: &[CategoryVariability]) -> String {
+    let usable: Vec<&CategoryVariability> = rows.iter().filter(|row| row.n >= 2).collect();
+    if usable.is_empty() {
+        return "Not enough observations in the selected range to rank variability.".to_string();
+    }
+    let first = usable[0];
+    format!(
+        "{} varies most relative to its median (IQR {}, {:.1}% of median, n {}).",
+        first.label,
+        first
+            .iqr
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        first.relative_iqr.unwrap_or(0.0) * 100.0,
+        first.n
+    )
+}
+
+pub fn variability_markup(rows: &[CategoryVariability]) -> String {
+    let max_iqr = rows
+        .iter()
+        .filter_map(|row| row.iqr)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let mut html = format!(
+        r#"<div class="variability-ssr-wrap html-chart"><p class="insight">{}</p><div class="ranking-list">"#,
+        variability_insight(rows)
+    );
+    for row in rows {
+        let width = row.iqr.unwrap_or(0.0) / max_iqr * 100.0;
+        let tooltip = escape_attr(&format!(
+            "{}: IQR {}, {:.1}% of median {}, n {}.",
+            row.label,
+            row.iqr
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.relative_iqr.unwrap_or(0.0) * 100.0,
+            row.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.n
+        ));
+        html.push_str(&format!(
+            r#"<div class="ranking-row html-anim" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"><span class="ranking-label">{}</span><span class="ranking-track"><i class="ranking-bar mix-{key}" style="width:{width:.1}%"></i></span><span class="ranking-value">{} · {:.1}% · n {}</span></div>"#,
+            row.label,
+            row.iqr.map(compact_number).unwrap_or_else(|| "—".into()),
+            row.relative_iqr.unwrap_or(0.0) * 100.0,
+            row.n,
+            key = row.key
+        ));
+    }
+    html.push_str(r#"</div><details class="accessible-data"><summary>View variability ranking data table</summary><div class="table-scroll"><table><caption>Fare-media variability ranking</caption><thead><tr><th>Category</th><th>n</th><th>Median</th><th>IQR</th><th>IQR / median</th></tr></thead><tbody>"#);
+    for row in rows {
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            row.label,
+            row.n,
+            row.median
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.iqr
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            row.relative_iqr
+                .map(|value| format!("{:.1}%", value * 100.0))
+                .unwrap_or_else(|| "—".into())
+        ));
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
+}
+
+pub fn reporting_pulse_insight(months: &[ReportingPulseMonth]) -> String {
+    let usable: Vec<&ReportingPulseMonth> = months
+        .iter()
+        .filter(|month| month.calendar_days > 0)
+        .collect();
+    if usable.is_empty() {
+        return "No calendar months are available in the selected range.".to_string();
+    }
+    let lowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| a.coverage.total_cmp(&b.coverage))
+        .expect("nonempty");
+    let total_observed: usize = usable.iter().map(|month| month.observed_days).sum();
+    let total_days: usize = usable.iter().map(|month| month.calendar_days).sum();
+    format!(
+        "{} of {} calendar days have published rows ({:.1}%). Sparsest month: {} at {:.1}% coverage.",
+        total_observed,
+        total_days,
+        total_observed as f64 / total_days.max(1) as f64 * 100.0,
+        lowest.month.format("%b %Y"),
+        lowest.coverage * 100.0
+    )
+}
+
+pub fn reporting_pulse_markup(months: &[ReportingPulseMonth]) -> String {
+    let mut html = format!(
+        r#"<div class="pulse-ssr-wrap html-chart"><p class="insight">{}</p><div class="pulse-list">"#,
+        reporting_pulse_insight(months)
+    );
+    for month in months {
+        let observed_width = month.coverage * 100.0;
+        let tooltip = escape_attr(&format!(
+            "{}: {} observed of {} calendar days ({:.1}%), {} missing; longest unpublished run {} days.",
+            month.month.format("%b %Y"),
+            month.observed_days,
+            month.calendar_days,
+            month.coverage * 100.0,
+            month.missing_days,
+            month.longest_missing_run
+        ));
+        html.push_str(&format!(
+            r#"<div class="pulse-row html-anim" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"><span class="pulse-label">{}</span><span class="pulse-track"><i class="pulse-observed" style="width:{observed_width:.1}%"></i><i class="pulse-missing" style="left:{observed_width:.1}%;width:{:.1}%"></i></span><span class="pulse-value">{}/{}d · gap {}</span></div>"#,
+            month.month.format("%b ’%y"),
+            month.observed_days,
+            month.calendar_days,
+            month.longest_missing_run,
+            100.0 - observed_width
+        ));
+    }
+    html.push_str(r#"</div><div class="pulse-legend"><span><i class="pulse-key observed"></i>Published</span><span><i class="pulse-key missing"></i>No published row</span></div><details class="accessible-data"><summary>View reporting completeness data table</summary><div class="table-scroll"><table><caption>Monthly reporting completeness</caption><thead><tr><th>Month</th><th>Observed</th><th>Calendar days</th><th>Coverage</th><th>Longest missing run</th></tr></thead><tbody>"#);
+    for month in months {
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{:.1}%</td><td>{}</td></tr>",
+            month.month.format("%b %Y"),
+            month.observed_days,
+            month.calendar_days,
+            month.coverage * 100.0,
+            month.longest_missing_run
+        ));
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
+}
+
+pub fn monthly_estimates_insight(months: &[MonthlyEstimate]) -> String {
+    let usable: Vec<&MonthlyEstimate> = months
+        .iter()
+        .filter(|month| month.estimated_missing_total.is_some())
+        .collect();
+    if usable.is_empty() {
+        return "No estimable incomplete months in the selected range.".to_string();
+    }
+    let most_dependent = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| {
+            let share = |month: &MonthlyEstimate| {
+                month.estimated_missing_total.unwrap_or(0.0)
+                    / (month.observed_total + month.estimated_missing_total.unwrap_or(0.0)).max(1.0)
+            };
+            share(a).total_cmp(&share(b))
+        })
+        .expect("nonempty");
+    let estimate = most_dependent.estimated_missing_total.unwrap_or(0.0);
+    format!(
+        "{} depends most on estimation: {} estimated journeys across {} missing days, {:.0}% coverage.",
+        most_dependent.month.format("%b %Y"),
+        format_number_full(estimate),
+        most_dependent.missing_days,
+        most_dependent.coverage * 100.0
+    )
+}
+
+pub fn monthly_estimates_markup(months: &[MonthlyEstimate]) -> String {
+    let max_total = months
+        .iter()
+        .map(|month| month.high_total.unwrap_or(month.observed_total))
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let mut html = format!(
+        r#"<div class="estimate-ssr-wrap html-chart"><p class="insight">{}</p><div class="estimate-list">"#,
+        monthly_estimates_insight(months)
+    );
+    for month in months {
+        let observed_width = month.observed_total / max_total * 100.0;
+        let estimated_width = month.estimated_missing_total.unwrap_or(0.0) / max_total * 100.0;
+        let central = month
+            .estimated_missing_total
+            .map(|estimate| month.observed_total + estimate);
+        let tooltip = escape_attr(&format!(
+            "{}: observed {} across {} days; estimated missing {} across {} days. Central estimate {}, sensitivity {}–{}. Coverage {:.0}%. Estimates are not official totals or confidence intervals.",
+            month.month.format("%b %Y"),
+            format_number_full(month.observed_total),
+            month.observed_days,
+            month
+                .estimated_missing_total
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month.missing_days,
+            central
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month
+                .low_total
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month
+                .high_total
+                .map(format_number_full)
+                .unwrap_or_else(|| "—".into()),
+            month.coverage * 100.0
+        ));
+        html.push_str(&format!(
+            r#"<div class="estimate-row html-anim" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"><span class="estimate-label">{}</span><span class="estimate-track"><i class="estimate-observed" style="width:{observed_width:.1}%"></i><i class="estimate-missing" style="left:{observed_width:.1}%;width:{estimated_width:.1}%"></i></span><span class="estimate-value">{} + {} · {:.0}%</span></div>"#,
+            month.month.format("%b ’%y"),
+            compact_number(month.observed_total),
+            month.estimated_missing_total.map(compact_number).unwrap_or_else(|| "—".into()),
+            month.coverage * 100.0
+        ));
+    }
+    html.push_str(r#"</div><div class="estimate-legend"><span><i class="estimate-key observed"></i>Observed sum</span><span><i class="estimate-key missing"></i>Estimated missing days</span></div><details class="accessible-data"><summary>View monthly estimate data table</summary><div class="table-scroll"><table><caption>Observed and estimated monthly totals</caption><thead><tr><th>Month</th><th>Observed total</th><th>Estimated missing</th><th>Central estimate</th><th>Sensitivity range</th><th>Coverage</th></tr></thead><tbody>"#);
+    for month in months {
+        let central = month
+            .estimated_missing_total
+            .map(|estimate| month.observed_total + estimate);
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}–{}</td><td>{:.0}%</td></tr>",
+            month.month.format("%b %Y"), format_number_full(month.observed_total),
+            month.estimated_missing_total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            central.map(format_number_full).unwrap_or_else(|| "—".into()),
+            month.low_total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            month.high_total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            month.coverage * 100.0
+        ));
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
+}
+
+pub fn field_completeness_insight(months: &[FieldCompletenessMonth]) -> String {
+    let mut sums: std::collections::HashMap<&str, (usize, usize)> =
+        std::collections::HashMap::new();
+    for month in months {
+        for cell in &month.cells {
+            let entry = sums.entry(cell.label).or_insert((0, 0));
+            entry.0 += cell.present_days;
+            entry.1 += cell.published_days;
+        }
+    }
+    if let Some((label, (present, total))) = sums
+        .iter()
+        .filter(|(_, (_, total))| *total > 0)
+        .min_by(|a, b| (a.1.0 as f64 / a.1.1 as f64).total_cmp(&(b.1.0 as f64 / b.1.1 as f64)))
+    {
+        format!(
+            "{} has the lowest nonblank coverage among published rows: {} of {} rows ({:.1}%).",
+            label,
+            present,
+            total,
+            *present as f64 / *total as f64 * 100.0
+        )
+    } else {
+        "No published rows are available in the selected range.".to_string()
+    }
+}
+
+pub fn field_completeness_markup(months: &[FieldCompletenessMonth]) -> String {
+    let labels = months
+        .first()
+        .map(|month| {
+            month
+                .cells
+                .iter()
+                .map(|cell| cell.label)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut html = format!(
+        r#"<div class="fields-ssr-wrap html-chart"><p class="insight">{}</p><div class="fields-scroll"><div class="fields-grid" role="grid" aria-label="Month by field completeness grid"><span class="fields-corner"></span><span class="fields-heading">Total</span>"#,
+        field_completeness_insight(months)
+    );
+    for label in &labels {
+        html.push_str(&format!(r#"<span class="fields-heading">{label}</span>"#));
+    }
+    for month in months {
+        html.push_str(&format!(
+            r#"<span class="fields-row-label">{}</span>"#,
+            month.month.format("%b ’%y")
+        ));
+        let total_share = if month.published_days > 0 {
+            Some(month.total_derivable_days as f64 / month.published_days as f64)
+        } else {
+            None
+        };
+        let total_tooltip = escape_attr(&format!(
+            "{} Total derivable: {} of {} published rows.",
+            month.month.format("%b %Y"),
+            month.total_derivable_days,
+            month.published_days
+        ));
+        html.push_str(&format!(
+            r#"<span class="fields-cell fields-total" style="--complete:{:.3}" tabindex="0" role="gridcell" aria-label="{total_tooltip}" data-tooltip="{total_tooltip}"><b>{}</b><small>{}/{}</small></span>"#,
+            total_share.unwrap_or(0.0),
+            total_share.map(|value| format!("{:.0}%", value * 100.0)).unwrap_or_else(|| "—".into()),
+            month.total_derivable_days,
+            month.published_days
+        ));
+        for cell in &month.cells {
+            let tooltip = escape_attr(&format!(
+                "{} {}: nonblank in {} of {} published rows ({:.1}%).",
+                month.month.format("%b %Y"),
+                cell.label,
+                cell.present_days,
+                cell.published_days,
+                cell.share.unwrap_or(0.0) * 100.0
+            ));
+            html.push_str(&format!(
+                r#"<span class="fields-cell" style="--complete:{:.3}" tabindex="0" role="gridcell" aria-label="{tooltip}" data-tooltip="{tooltip}"><b>{}</b><small>{}/{}</small></span>"#,
+                cell.share.unwrap_or(0.0),
+                cell.share.map(|value| format!("{:.0}%", value * 100.0)).unwrap_or_else(|| "—".into()),
+                cell.present_days,
+                cell.published_days
+            ));
+        }
+    }
+    html.push_str(r#"</div></div><details class="accessible-data"><summary>View field completeness data table</summary><div class="table-scroll"><table><caption>Monthly field completeness over published rows</caption><thead><tr><th>Month</th><th>Field</th><th>Nonblank</th><th>Published rows</th><th>Coverage</th></tr></thead><tbody>"#);
+    for month in months {
+        for cell in &month.cells {
+            html.push_str(&format!(
+                "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                month.month.format("%b %Y"),
+                cell.label,
+                cell.present_days,
+                cell.published_days,
+                cell.share
+                    .map(|value| format!("{:.1}%", value * 100.0))
+                    .unwrap_or_else(|| "—".into())
+            ));
+        }
+    }
+    html.push_str("</tbody></table></div></details></div>");
+    html
 }
 
 pub fn month_weekday_matrix_insight(matrix: &MonthWeekdayMatrix) -> String {

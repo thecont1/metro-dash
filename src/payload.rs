@@ -1,16 +1,18 @@
 use serde::Serialize;
 
 use crate::charts::{
-    CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown, format_number_full,
-    format_range, insight_line, month_weekday_matrix_insight, weekday_distribution_insight,
-    weekday_name, weekend_signature_insight,
+    CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown,
+    field_completeness_markup, format_number_full, format_range, insight_line,
+    month_weekday_matrix_insight, monthly_estimates_markup, reporting_pulse_markup,
+    variability_markup, weekday_distribution_insight, weekday_name, weekend_signature_insight,
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
     FareMixMonth, MonthWeekdayMatrix, NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord,
     SmartMixMonth, WeekdayBaselinePoint, WeekdayDistribution, WeekendSignature,
-    component_waterfall, fare_mix_series, last_n_months_range, month_weekday_matrix,
-    ncmc_share_series, qr_mix_series, record_index, smart_mix_series, summarise,
+    component_waterfall, fare_mix_series, field_completeness_grid, last_n_months_range,
+    month_weekday_matrix, monthly_estimate_series, ncmc_share_series, qr_mix_series, record_index,
+    reporting_pulse_series, smart_mix_series, summarise, variability_ranking,
     weekday_baseline_series, weekday_distribution_series, weekend_signature_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
@@ -151,6 +153,10 @@ pub struct PayloadCharts {
     pub weekday_distribution: WeekdayDistributionPayload,
     pub weekend_signatures: WeekendSignaturesPayload,
     pub month_weekday_matrix: MonthWeekdayMatrixPayload,
+    pub variability_ranking: HtmlChartPayload,
+    pub reporting_pulse: HtmlChartPayload,
+    pub monthly_estimates: HtmlChartPayload,
+    pub field_completeness: HtmlChartPayload,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -275,6 +281,12 @@ pub struct WeekdayBaselinePointPayload {
     pub status: &'static str,
     pub status_label: &'static str,
     pub tooltip: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HtmlChartPayload {
+    pub html: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -445,6 +457,18 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
         weekday_distribution_payload(&weekday_distribution_series(dataset, range));
     let weekend_signatures = weekend_signatures_payload(&weekend_signature_series(dataset, range));
     let month_weekday_matrix = month_weekday_matrix_payload(&month_weekday_matrix(dataset, range));
+    let variability_ranking = HtmlChartPayload {
+        html: variability_markup(&variability_ranking(dataset, range)),
+    };
+    let reporting_pulse = HtmlChartPayload {
+        html: reporting_pulse_markup(&reporting_pulse_series(dataset, range)),
+    };
+    let monthly_estimates = HtmlChartPayload {
+        html: monthly_estimates_markup(&monthly_estimate_series(dataset, range)),
+    };
+    let field_completeness = HtmlChartPayload {
+        html: field_completeness_markup(&field_completeness_grid(dataset, range)),
+    };
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -505,6 +529,10 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             weekday_distribution,
             weekend_signatures,
             month_weekday_matrix,
+            variability_ranking,
+            reporting_pulse,
+            monthly_estimates,
+            field_completeness,
         },
         presets: range_presets(dataset)
             .iter()
