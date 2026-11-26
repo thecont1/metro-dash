@@ -157,6 +157,7 @@ Two paths feed the same `Dataset` type:
 
 - `summarise()` computes: calendar days, observation days, missing days, percentile bands (p2–p98), min/max totals, weekday metrics (mean, sample SD, min/max per weekday)
 - `weekday_baseline_series()` computes a rolling same-weekday median and interquartile band from up to six earlier and six later published reports; the current day is excluded and at least four nearby reports are required
+- `fare_mix_series()` aggregates complete parent-component days by calendar month, preserves months with no usable observations as gaps, and never zero-fills missing components
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -169,6 +170,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 3. **Weekday line chart (`commute-casual`)** — Average commuter vs casual ridership by weekday
 4. **Weekday baseline chart (`weekday-baseline`)** — Daily totals compared with a rolling same-weekday median and interquartile band
 5. **Component waterfall (`component-waterfall`)** — Fare-media arithmetic contributions to the selected day's difference from its same-weekday reference
+6. **Fare-media mix (`fare-media-mix`)** — Monthly 100% share columns with observed absolute totals shown separately
 
 ### Adding a new chart
 
@@ -206,6 +208,13 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 - D3: Animated floating bars with keyboard-focusable tooltips
 - Reference construction: medians of the same nearby same-weekday reports across all five published parent categories, requiring complete Smart Card, NCMC, Token, QR, and Group Ticket values; leaf/provider sums are deliberately not substituted because QR provider splits do not always reconcile with `Total QR`
 - The reference total is the sum of category medians, so reference + deltas = selected-day total exactly
+
+### How is the Fare-Media Mix Shifting?
+
+- SSR: Static SVG with monthly normalized share columns, a separate observed-total strip with visible complete-day counts, gap treatment for unusable months, a legend, and an accessible data table
+- D3: Animated share segments and total bars with keyboard-focusable tooltips; narrow viewports use a fixed legible scale with contained horizontal scrolling
+- Aggregation: published parent-category totals summed only across days where all five parent components are present; the same complete days feed both shares and the observed-total strip
+- Interpretation: lower bars are observed totals, not full-month totals; shares are aggregate composition and do not prove individual switching
 
 ## Client-side architecture
 

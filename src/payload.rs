@@ -6,8 +6,8 @@ use crate::charts::{
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
-    RangeSummary, RidershipRecord, WeekdayBaselinePoint, component_waterfall, last_n_months_range,
-    record_index, summarise, weekday_baseline_series,
+    FareMixMonth, RangeSummary, RidershipRecord, WeekdayBaselinePoint, component_waterfall,
+    fare_mix_series, last_n_months_range, record_index, summarise, weekday_baseline_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -140,6 +140,38 @@ pub struct PayloadCharts {
     pub commute_casual: CommuteCasualPayload,
     pub weekday_baseline: WeekdayBaselinePayload,
     pub component_waterfall: ComponentWaterfallPayload,
+    pub fare_media_mix: FareMediaMixPayload,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FareMediaMixPayload {
+    pub months: Vec<FareMixMonthPayload>,
+    pub insight: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FareMixMonthPayload {
+    pub month: String,
+    pub label: String,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub total: Option<f64>,
+    pub total_label: Option<String>,
+    pub components: Vec<FareMixComponentPayload>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FareMixComponentPayload {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub value: f64,
+    pub value_label: String,
+    pub share: Option<f64>,
+    pub share_label: Option<String>,
+    pub tooltip: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -285,6 +317,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let weekday_baseline = weekday_baseline_payload(&baseline_points);
     let waterfall = component_waterfall(dataset, range.end);
     let component_waterfall = component_waterfall_payload(waterfall.as_ref(), range.end);
+    let fare_media_mix = fare_mix_payload(&fare_mix_series(dataset, range));
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -338,6 +371,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             },
             weekday_baseline,
             component_waterfall,
+            fare_media_mix,
         },
         presets: range_presets(dataset)
             .iter()
@@ -357,6 +391,83 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 method: definition.method,
             })
             .collect(),
+    }
+}
+
+fn percent_label(value: f64) -> String {
+    format!("{:.1}%", value * 100.0)
+}
+
+fn fare_mix_payload(months: &[FareMixMonth]) -> FareMediaMixPayload {
+    let month_payloads = months
+        .iter()
+        .map(|month| {
+            let components = crate::data::WATERFALL_CATEGORIES
+                .iter()
+                .enumerate()
+                .map(|(index, (key, label))| {
+                    let value = month.components[index];
+                    let share = month
+                        .total
+                        .filter(|total| *total > 0.0)
+                        .map(|total| value / total);
+                    FareMixComponentPayload {
+                        key,
+                        label,
+                        value,
+                        value_label: format_number_full(value),
+                        share,
+                        share_label: share.map(percent_label),
+                        tooltip: format!(
+                            "{} · {}: {} ({}), {} complete of {} published days",
+                            month.month.format("%b %Y"),
+                            label,
+                            format_number_full(value),
+                            share.map(percent_label).unwrap_or_else(|| "—".into()),
+                            month.complete_days,
+                            month.published_days
+                        ),
+                    }
+                })
+                .collect();
+            FareMixMonthPayload {
+                month: month.month.to_string(),
+                label: month.month.format("%b ’%y").to_string(),
+                published_days: month.published_days,
+                complete_days: month.complete_days,
+                total: month.total,
+                total_label: month.total.map(format_number_full),
+                components,
+            }
+        })
+        .collect::<Vec<_>>();
+    let usable: Vec<&FareMixMonth> = months
+        .iter()
+        .filter(|month| month.total.is_some())
+        .collect();
+    let insight = if usable.len() >= 2 {
+        let first = usable.first().expect("nonempty");
+        let last = usable.last().expect("nonempty");
+        let share_of = |month: &FareMixMonth, index: usize| {
+            month
+                .total
+                .filter(|total| *total > 0.0)
+                .map(|total| month.components[index] / total)
+                .unwrap_or(0.0)
+        };
+        format!(
+            "Smart Cards {} → {}; NCMC {} → {} across complete observed days.",
+            percent_label(share_of(first, 0)),
+            percent_label(share_of(last, 0)),
+            percent_label(share_of(first, 1)),
+            percent_label(share_of(last, 1))
+        )
+    } else {
+        "Not enough complete months in the selected range to compare the mix.".to_string()
+    };
+    FareMediaMixPayload {
+        months: month_payloads,
+        insight,
     }
 }
 

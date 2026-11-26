@@ -8,7 +8,8 @@ use crate::charts::{Chart, band_label, calendar_markup, line_chart_markup};
 use crate::client::CLIENT_SCRIPT;
 use crate::data::{
     BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
-    component_waterfall, parse_dataset, quantile, summarise, weekday_baseline_series,
+    component_waterfall, fare_mix_series, parse_dataset, quantile, summarise,
+    weekday_baseline_series,
 };
 use crate::payload::chart_payload_for;
 use crate::render::{chart_jump_markup, parse_query, range_action_links};
@@ -166,6 +167,34 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
     assert_eq!(target.lower_quartile, Some(112.5));
     assert_eq!(target.upper_quartile, Some(137.5));
     assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
+fn fare_mix_months_aggregate_complete_days_and_preserve_gaps() {
+    let csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n\
+01-01-2024,100,20,30,5,45\n\
+02-01-2024,50,10,,2,20\n\
+01-03-2024,200,40,60,10,90\n";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let months = fare_mix_series(
+        &dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 3, 31).unwrap(),
+        },
+    );
+    assert_eq!(months.len(), 3);
+    assert_eq!(months[0].published_days, 2);
+    assert_eq!(months[0].complete_days, 1);
+    assert_eq!(months[0].total, Some(200.0));
+    assert_eq!(months[0].components, [100.0, 20.0, 30.0, 45.0, 5.0]);
+    assert_eq!(months[1].published_days, 0);
+    assert_eq!(months[1].complete_days, 0);
+    assert_eq!(months[1].total, None);
+    assert_eq!(months[2].published_days, 1);
+    assert_eq!(months[2].complete_days, 1);
+    assert_eq!(months[2].total, Some(400.0));
+    assert_eq!(months[2].components, [200.0, 40.0, 60.0, 90.0, 10.0]);
 }
 
 #[test]
@@ -426,6 +455,14 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
             .unwrap()
             .contains("componentWaterfall")
     );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("fareMediaMix")
+    );
+    assert_eq!(payload.charts.fare_media_mix.months.len(), 1);
+    assert_eq!(payload.charts.fare_media_mix.months[0].components.len(), 5);
+    assert!(payload.charts.fare_media_mix.months[0].total.is_some());
     assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);
     assert_eq!(
@@ -457,9 +494,9 @@ fn client_script_supports_direct_chart_selection() {
 #[test]
 fn charts_are_configured_to_fill_available_width() {
     assert!(STYLE.contains(".data-card-wrap{width:100%}"));
-    assert!(
-        STYLE.contains(".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg{display:block;width:100%")
-    );
+    assert!(STYLE.contains(
+        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg{display:block;width:100%"
+    ));
     assert!(CLIENT_SCRIPT.contains("window.addEventListener('resize'"));
 }
 

@@ -133,6 +133,15 @@ pub struct ComponentWaterfall {
     pub components: Vec<ComponentDelta>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct FareMixMonth {
+    pub month: NaiveDate,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub total: Option<f64>,
+    pub components: [f64; 5],
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaselineStatus {
     High,
@@ -815,4 +824,45 @@ pub fn component_waterfall(dataset: &Dataset, date: NaiveDate) -> Option<Compone
         delta_total: Some(actual_total - reference_total),
         components,
     })
+}
+
+/// Aggregate published parent-category totals by calendar month. Shares are
+/// only meaningful for days with the full parent-component set, so incomplete
+/// rows count as published but contribute neither to `complete_days` nor to
+/// the monthly totals. Months with no usable rows remain present as gaps.
+pub fn fare_mix_series(dataset: &Dataset, range: DateRange) -> Vec<FareMixMonth> {
+    let mut cursor = NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+        .expect("valid month start");
+    let mut months = Vec::new();
+    while cursor <= range.end {
+        let next_month = cursor
+            .checked_add_months(Months::new(1))
+            .expect("valid next month");
+        let month_end = (next_month - Duration::days(1)).min(range.end);
+        let rows: Vec<&RidershipRecord> = dataset
+            .records
+            .iter()
+            .filter(|record| record.date >= cursor.max(range.start) && record.date <= month_end)
+            .collect();
+        let mut components = [0.0; 5];
+        let mut complete_days = 0;
+        for record in &rows {
+            if let Some(values) = parent_components(dataset, record) {
+                complete_days += 1;
+                for (index, value) in values.iter().enumerate() {
+                    components[index] += value;
+                }
+            }
+        }
+        let total = (complete_days > 0).then(|| components.iter().sum::<f64>());
+        months.push(FareMixMonth {
+            month: cursor,
+            published_days: rows.len(),
+            complete_days,
+            total,
+            components,
+        });
+        cursor = next_month;
+    }
+    months
 }

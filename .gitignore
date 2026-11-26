@@ -9,3 +9,4 @@ wasm/target/
 /site/wasm/
 /.playwright-mcp/
 __pycache__/
+/site/namma-metro-ridership.csv

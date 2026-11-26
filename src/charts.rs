@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 use chrono::{Datelike, NaiveDate, Weekday};
 
 use crate::data::{
-    BaselineStatus, ComponentWaterfall, Dataset, DateRange, RangeSummary, RidershipRecord,
-    WeekdayBaselinePoint, WeekdayMetric,
+    BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, RangeSummary,
+    RidershipRecord, WeekdayBaselinePoint, WeekdayMetric,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,6 +15,7 @@ pub enum Chart {
     CommuteCasual,
     WeekdayBaseline,
     ComponentWaterfall,
+    FareMediaMix,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -26,7 +27,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 5] = [
+pub static CHARTS: [ChartDefinition; 6] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -61,6 +62,13 @@ pub static CHARTS: [ChartDefinition; 5] = [
         title: "What Accounts for the Difference?",
         deck: "Fare-media contributions to the selected day's difference from its same-weekday reference.",
         method: "Uses the end date and the published parent totals. Each reference is the median of up to 6 earlier and 6 later same-weekday reports with complete components; provider sums are not substituted because QR splits can diverge. Bars sum exactly to the total difference — arithmetic decomposition, not causal attribution. The axis is zoomed to make movements visible.",
+    },
+    ChartDefinition {
+        chart: Chart::FareMediaMix,
+        slug: "fare-media-mix",
+        title: "How is the Fare-Media Mix Shifting?",
+        deck: "Monthly share mix, with the observed absolute total shown separately underneath.",
+        method: "Each month uses only published days with complete parent components. Upper bars are shares of the observed total; lower bars are the observed absolute total for those same complete days, not full-month totals. Missing reports and incomplete components are never zero-filled. Shares are aggregate fare-media composition, not evidence that individual riders switched payment method.",
     },
 ];
 
@@ -772,6 +780,172 @@ fn signed_full(value: f64) -> String {
     } else {
         format_number_full(value)
     }
+}
+
+fn mix_percent(value: f64) -> String {
+    format!("{value:.0}%")
+}
+
+pub fn fare_mix_insight(months: &[FareMixMonth]) -> String {
+    let usable: Vec<&FareMixMonth> = months
+        .iter()
+        .filter(|month| month.total.is_some())
+        .collect();
+    if usable.len() < 2 {
+        return "Not enough complete months in the selected range to compare the mix.".to_string();
+    }
+    let first = usable.first().expect("nonempty");
+    let last = usable.last().expect("nonempty");
+    let share = |month: &FareMixMonth, index: usize| {
+        month
+            .total
+            .filter(|total| *total > 0.0)
+            .map(|total| month.components[index] / total * 100.0)
+            .unwrap_or(0.0)
+    };
+    format!(
+        "Smart Cards {:.0}% → {:.0}%; NCMC {:.0}% → {:.0}% across complete observed days.",
+        share(first, 0),
+        share(last, 0),
+        share(first, 1),
+        share(last, 1)
+    )
+}
+
+pub fn fare_mix_chart_markup(months: &[FareMixMonth]) -> String {
+    if months.is_empty() {
+        return r#"<div class="mix-wrap"><p class="mix-empty">No months are available in the selected range.</p></div>"#.to_string();
+    }
+    const WIDTH: f64 = 1100.0;
+    const HEIGHT: f64 = 400.0;
+    const LEFT: f64 = 48.0;
+    const RIGHT: f64 = 22.0;
+    const TOP: f64 = 42.0;
+    const SHARE_H: f64 = 178.0;
+    const GAP: f64 = 34.0;
+    const TOTAL_H: f64 = 58.0;
+    const LABEL_Y: f64 = 366.0;
+    let plot_width = WIDTH - LEFT - RIGHT;
+    let step = plot_width / months.len().max(1) as f64;
+    let bar_width = (step * 0.58).clamp(14.0, 52.0);
+    let max_total = months
+        .iter()
+        .filter_map(|month| month.total)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let total_base = TOP + SHARE_H + GAP + TOTAL_H;
+    let mut svg = format!(
+        r#"<div class="mix-wrap"><svg class="mix-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Monthly fare-media share mix with observed totals"><g class="grid">"#
+    );
+    for (value, label) in [(0.0, "0%"), (0.5, "50%"), (1.0, "100%")] {
+        let yy = TOP + SHARE_H - value * SHARE_H;
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{label}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 9.0,
+            yy + 4.0
+        ));
+    }
+    svg.push_str(&format!(
+        r#"<line x1="{LEFT}" x2="{}" y1="{total_base:.1}" y2="{total_base:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text><text x="{}" y="{:.1}" text-anchor="end">0</text>"#,
+        WIDTH - RIGHT,
+        LEFT - 9.0,
+        total_base - TOTAL_H + 4.0,
+        compact_number(max_total),
+        LEFT - 9.0,
+        total_base + 4.0
+    ));
+    svg.push_str("</g>");
+
+    for (index, month) in months.iter().enumerate() {
+        let xx = LEFT + step * (index as f64 + 0.5);
+        if let Some(total) = month.total.filter(|total| *total > 0.0) {
+            let mut cumulative = 0.0;
+            for (component_index, (key, label)) in
+                crate::data::WATERFALL_CATEGORIES.iter().enumerate()
+            {
+                let value = month.components[component_index];
+                let share = value / total;
+                let y = TOP + cumulative * SHARE_H;
+                let height = (share * SHARE_H).max(if value > 0.0 { 1.0 } else { 0.0 });
+                let tooltip = escape_attr(&format!(
+                    "{} · {}: {} ({:.1}%), {} complete of {} published days",
+                    month.month.format("%b %Y"),
+                    label,
+                    format_number_full(value),
+                    share * 100.0,
+                    month.complete_days,
+                    month.published_days
+                ));
+                svg.push_str(&format!(
+                    r#"<rect class="mix-segment mix-{key}" x="{:.1}" y="{y:.1}" width="{bar_width}" height="{height:.1}" aria-hidden="true"></rect><rect class="mix-hit" x="{:.1}" y="{y:.1}" width="{bar_width}" height="{height:.1}" fill="transparent" tabindex="0" role="img" aria-label="{tooltip}" data-tooltip="{tooltip}"></rect>"#,
+                    xx - bar_width / 2.0,
+                    xx - bar_width / 2.0
+                ));
+                cumulative += share;
+            }
+            let total_height = total / max_total * TOTAL_H;
+            let total_y = total_base - total_height;
+            let total_tooltip = escape_attr(&format!(
+                "{} observed total: {} across {} complete days",
+                month.month.format("%b %Y"),
+                format_number_full(total),
+                month.complete_days
+            ));
+            svg.push_str(&format!(
+                r#"<rect class="mix-total-bar" x="{:.1}" y="{total_y:.1}" width="{bar_width}" height="{total_height:.1}" aria-hidden="true"></rect><rect class="mix-total-hit" x="{:.1}" y="{total_y:.1}" width="{bar_width}" height="{total_height:.1}" fill="transparent" tabindex="0" role="img" aria-label="{total_tooltip}" data-tooltip="{total_tooltip}"></rect><text class="mix-coverage-label" x="{xx:.1}" y="{:.1}" text-anchor="middle">{}/{}d</text>"#,
+                xx - bar_width / 2.0,
+                xx - bar_width / 2.0,
+                total_base + 17.0,
+                month.complete_days,
+                month.published_days
+            ));
+        } else {
+            svg.push_str(&format!(
+                r#"<rect class="mix-gap" x="{:.1}" y="{TOP}" width="{bar_width}" height="{SHARE_H}"></rect>"#,
+                xx - bar_width / 2.0
+            ));
+        }
+        svg.push_str(&format!(
+            r#"<text class="x-label mix-x-label" x="{xx:.1}" y="{LABEL_Y}" text-anchor="middle">{}</text>"#,
+            month.month.format("%b ’%y")
+        ));
+    }
+    svg.push_str("</svg>");
+    svg.push_str(r#"<div class="mix-legend" aria-label="Fare media legend"><span><i class="mix-key mix-smart-card"></i>Smart Cards</span><span><i class="mix-key mix-ncmc"></i>NCMC</span><span><i class="mix-key mix-token"></i>Tokens</span><span><i class="mix-key mix-qr"></i>QR</span><span><i class="mix-key mix-group-ticket"></i>Group</span></div>"#);
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        fare_mix_insight(months)
+    ));
+    svg.push_str(&fare_mix_table(months));
+    svg.push_str("</div>");
+    svg
+}
+
+fn fare_mix_table(months: &[FareMixMonth]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View fare-media mix data table</summary><div class="table-scroll"><table><caption>Monthly observed totals and shares by fare medium</caption><thead><tr><th scope="col">Month</th><th scope="col">Complete days</th><th scope="col">Observed total</th><th scope="col">Smart Cards</th><th scope="col">NCMC</th><th scope="col">Tokens</th><th scope="col">QR</th><th scope="col">Group</th></tr></thead><tbody>"#,
+    );
+    for month in months {
+        let share = |index: usize| {
+            month
+                .total
+                .filter(|total| *total > 0.0)
+                .map(|total| mix_percent(month.components[index] / total * 100.0))
+                .unwrap_or_else(|| "—".into())
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            month.month.format("%b %Y"),
+            month.complete_days,
+            month.published_days,
+            month.total.map(format_number_full).unwrap_or_else(|| "—".into()),
+            share(0), share(1), share(2), share(3), share(4)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
 }
 
 pub fn waterfall_insight(waterfall: &ComponentWaterfall) -> String {
