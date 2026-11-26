@@ -162,6 +162,7 @@ Two paths feed the same `Dataset` type:
 - `qr_mix_series()` aggregates complete four-provider QR days by month; shares use provider sums while parent QR remains a separate scale measure because they do not always reconcile
 - `smart_mix_series()` aggregates complete Smart Card subtype days by month; shares use subtype sums while parent Smart Cards provide separate scale context
 - `weekday_distribution_series()` computes total-ridership quartiles and observed ranges by weekday without imputing missing dates
+- `weekend_signature_series()` groups complete parent-component days into Monday–Friday, Saturday, and Sunday panels
 - `quantile()` uses linear interpolation
 - Sample standard deviation uses n−1 denominator
 
@@ -179,6 +180,7 @@ Charts are defined as a `const` array of `ChartDefinition` structs in `src/chart
 8. **QR channel mix (`qr-channel-mix`)** — Monthly provider-level shares with parent Total QR shown separately
 9. **Smart Card subtype mix (`smart-card-mix`)** — Monthly subtype shares with parent Smart Cards shown separately
 10. **Weekday distributions (`weekday-distributions`)** — Median/IQR/full-range distribution for each weekday
+11. **Weekend signatures (`weekend-signatures`)** — Day-group total distributions plus aggregate fare-media shares
 
 ### Adding a new chart
 

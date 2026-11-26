@@ -6,7 +6,7 @@ use chrono::{Datelike, NaiveDate, Weekday};
 use crate::data::{
     BaselineStatus, ComponentWaterfall, Dataset, DateRange, FareMixMonth, NcmcShareWeek,
     QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth, WeekdayBaselinePoint,
-    WeekdayDistribution, WeekdayMetric,
+    WeekdayDistribution, WeekdayMetric, WeekendSignature,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -21,6 +21,7 @@ pub enum Chart {
     QrMix,
     SmartMix,
     WeekdayDistribution,
+    WeekendSignatures,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,7 +33,7 @@ pub struct ChartDefinition {
     pub method: &'static str,
 }
 
-pub static CHARTS: [ChartDefinition; 10] = [
+pub static CHARTS: [ChartDefinition; 11] = [
     ChartDefinition {
         chart: Chart::DataCard,
         slug: "data-card",
@@ -102,6 +103,13 @@ pub static CHARTS: [ChartDefinition; 10] = [
         title: "How Predictable is Each Weekday?",
         deck: "Observed daily-total distributions for every weekday in the selected range.",
         method: "For each weekday, the box spans the interquartile range, the centre line is the median, and whiskers span the full observed range. Only published derived totals count; missing reports are omitted rather than zero-filled. A wide range is descriptive variability, not evidence of crowding or capacity pressure.",
+    },
+    ChartDefinition {
+        chart: Chart::WeekendSignatures,
+        slug: "weekend-signatures",
+        title: "How Does the Weekend Signature Differ?",
+        deck: "Monday–Friday, Saturday, and Sunday total distributions beside their fare-media share mix.",
+        method: "Each panel uses only published days with complete parent components, so the total distribution and share mix share the same evidence base. Boxes show median, interquartile range, and observed range; bars show aggregate fare-media shares summed over those same days. Day groups are calendar labels, not observed commuter or leisure identities.",
     },
 ];
 
@@ -895,6 +903,228 @@ fn smart_mix_table(months: &[SmartMixMonth]) -> String {
             month.month.format("%b %Y"), month.complete_days, month.published_days,
             if month.has_mix() { format_number_full(month.parent_smart_total) } else { "—".into() },
             share(0), share(1), share(2), share(3)
+        ));
+    }
+    table.push_str("</tbody></table></div></details>");
+    table
+}
+
+pub fn weekend_signature_insight(groups: &[WeekendSignature]) -> String {
+    let usable: Vec<&WeekendSignature> = groups
+        .iter()
+        .filter(|group| group.complete_days > 0 && group.median.is_some())
+        .collect();
+    if usable.len() < 2 {
+        return "Not enough complete days in the selected range to compare day-group signatures."
+            .to_string();
+    }
+    let highest = usable
+        .iter()
+        .copied()
+        .max_by(|a, b| a.median.unwrap_or(0.0).total_cmp(&b.median.unwrap_or(0.0)))
+        .expect("nonempty");
+    let lowest = usable
+        .iter()
+        .copied()
+        .min_by(|a, b| a.median.unwrap_or(0.0).total_cmp(&b.median.unwrap_or(0.0)))
+        .expect("nonempty");
+    let ncmc_share = |group: &WeekendSignature| {
+        if group.component_total > 0.0 {
+            group.components[1] / group.component_total * 100.0
+        } else {
+            0.0
+        }
+    };
+    format!(
+        "{} has the highest median total ({}); {} the lowest ({}). NCMC shares: {} {:.1}%, {} {:.1}%.",
+        highest.label,
+        format_number_full(highest.median.unwrap_or(0.0)),
+        lowest.label,
+        format_number_full(lowest.median.unwrap_or(0.0)),
+        groups[0].label,
+        ncmc_share(&groups[0]),
+        groups[2].label,
+        ncmc_share(&groups[2])
+    )
+}
+
+fn signature_tooltip(group: &WeekendSignature) -> String {
+    if group.complete_days == 0 {
+        return format!(
+            "{}: no complete parent-component days among {} published days.",
+            group.label, group.published_days
+        );
+    }
+    format!(
+        "{}: median {}, interquartile range {}–{}, full range {}–{}; {} complete of {} published days.",
+        group.label,
+        group
+            .median
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .lower_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .upper_quartile
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .minimum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group
+            .maximum
+            .map(format_number_full)
+            .unwrap_or_else(|| "—".into()),
+        group.complete_days,
+        group.published_days
+    )
+}
+
+pub fn weekend_signature_chart_markup(groups: &[WeekendSignature]) -> String {
+    const WIDTH: f64 = 1000.0;
+    const HEIGHT: f64 = 440.0;
+    const LEFT: f64 = 48.0;
+    const RIGHT: f64 = 28.0;
+    const TOP: f64 = 72.0;
+    const BOX_H: f64 = 180.0;
+    const SHARE_Y: f64 = 318.0;
+    const SHARE_H: f64 = 30.0;
+    let max_value = groups
+        .iter()
+        .filter_map(|group| group.maximum)
+        .reduce(f64::max)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let panel_width = (WIDTH - LEFT - RIGHT) / 3.0;
+    let y = |value: f64| TOP + BOX_H - value / max_value * BOX_H;
+    let mut svg = format!(
+        r#"<div class="signature-ssr-wrap"><svg class="signature-chart" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="Weekday, Saturday, and Sunday total distributions with fare-media shares"><g class="grid">"#
+    );
+    for tick in 0..=3 {
+        let value = max_value * tick as f64 / 3.0;
+        let yy = y(value);
+        svg.push_str(&format!(
+            r#"<line x1="{LEFT}" x2="{}" y1="{yy:.1}" y2="{yy:.1}"></line><text x="{}" y="{:.1}" text-anchor="end">{}</text>"#,
+            WIDTH - RIGHT,
+            LEFT - 8.0,
+            yy + 4.0,
+            compact_number(value)
+        ));
+    }
+    svg.push_str("</g>");
+    for (index, group) in groups.iter().enumerate() {
+        let panel_x = LEFT + panel_width * index as f64;
+        let centre = panel_x + panel_width / 2.0;
+        let label = escape_attr(&signature_tooltip(group));
+        svg.push_str(&format!(
+            r#"<g class="signature-panel" tabindex="0" role="img" aria-label="{label}" data-tooltip="{label}"><text class="signature-title" x="{centre:.1}" y="32" text-anchor="middle">{}</text><text class="signature-n" x="{centre:.1}" y="52" text-anchor="middle">{} complete of {} published</text>"#,
+            group.label, group.complete_days, group.published_days
+        ));
+        if group.complete_days > 0 {
+            let min_y = y(group.minimum.unwrap_or(0.0));
+            let max_y = y(group.maximum.unwrap_or(0.0));
+            let q1_y = y(group.lower_quartile.unwrap_or(0.0));
+            let q3_y = y(group.upper_quartile.unwrap_or(0.0));
+            let med_y = y(group.median.unwrap_or(0.0));
+            svg.push_str(&format!(
+                r#"<line class="dist-whisker" x1="{centre:.1}" x2="{centre:.1}" y1="{max_y:.1}" y2="{min_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{max_y:.1}" y2="{max_y:.1}"></line><line class="dist-cap" x1="{:.1}" x2="{:.1}" y1="{min_y:.1}" y2="{min_y:.1}"></line><rect class="dist-box" x="{:.1}" y="{q3_y:.1}" width="58" height="{:.1}"></rect><line class="dist-median" x1="{:.1}" x2="{:.1}" y1="{med_y:.1}" y2="{med_y:.1}"></line>"#,
+                centre - 25.0, centre + 25.0, centre - 25.0, centre + 25.0,
+                centre - 29.0, (q1_y - q3_y).max(1.0), centre - 29.0, centre + 29.0
+            ));
+        } else {
+            svg.push_str(&format!(
+                r#"<text class="dist-empty" x="{centre:.1}" y="{:.1}" text-anchor="middle">No complete days</text>"#,
+                TOP + BOX_H / 2.0
+            ));
+        }
+        let bar_x = panel_x + 24.0;
+        let bar_width = panel_width - 48.0;
+        svg.push_str(&format!(
+            r#"<text class="signature-share-label" x="{centre:.1}" y="{:.1}" text-anchor="middle">Aggregate fare-media shares</text>"#,
+            SHARE_Y - 10.0
+        ));
+        if group.component_total > 0.0 {
+            let mut cursor = bar_x;
+            for (component_index, (key, component_label)) in
+                crate::data::WATERFALL_CATEGORIES.iter().enumerate()
+            {
+                let share = group.components[component_index] / group.component_total;
+                let width = share * bar_width;
+                let tooltip = escape_attr(&format!(
+                    "{} · {}: {:.1}% of aggregate complete-day total",
+                    group.label,
+                    component_label,
+                    share * 100.0
+                ));
+                svg.push_str(&format!(
+                    r#"<rect class="signature-share-segment mix-{key}" x="{cursor:.1}" y="{SHARE_Y}" width="{width:.1}" height="{SHARE_H}" data-tooltip="{tooltip}"></rect>"#
+                ));
+                cursor += width;
+            }
+        } else {
+            svg.push_str(&format!(
+                r#"<rect class="mix-gap" x="{bar_x:.1}" y="{SHARE_Y}" width="{bar_width:.1}" height="{SHARE_H}"></rect>"#
+            ));
+        }
+        svg.push_str("</g>");
+    }
+    let mut legend = String::from(r#"<g class="signature-legend" transform="translate(250,398)">"#);
+    let mut dx = 0.0;
+    for (key, label) in crate::data::WATERFALL_CATEGORIES {
+        legend.push_str(&format!(
+            r#"<g transform="translate({dx:.1},0)"><rect class="mix-key mix-{key}" x="0" y="-10" width="10" height="10" rx="2"></rect><text x="16" y="0">{label}</text></g>"#
+        ));
+        dx += match key {
+            "smart-card" => 108.0,
+            "ncmc" => 72.0,
+            "token" => 78.0,
+            "qr" => 54.0,
+            _ => 112.0,
+        };
+    }
+    legend.push_str("</g>");
+    svg.push_str(&legend);
+    svg.push_str("</svg>");
+    svg.push_str(&format!(
+        r#"<p class="insight">{}</p>"#,
+        weekend_signature_insight(groups)
+    ));
+    svg.push_str(&weekend_signature_table(groups));
+    svg.push_str("</div>");
+    svg
+}
+
+fn weekend_signature_table(groups: &[WeekendSignature]) -> String {
+    let mut table = String::from(
+        r#"<details class="accessible-data"><summary>View weekend signature data table</summary><div class="table-scroll"><table><caption>Total distributions and aggregate fare-media shares by day group</caption><thead><tr><th scope="col">Day group</th><th scope="col">Complete/published</th><th scope="col">Median</th><th scope="col">IQR</th><th scope="col">Range</th><th scope="col">Smart Cards</th><th scope="col">NCMC</th><th scope="col">Tokens</th><th scope="col">QR</th><th scope="col">Group Ticket</th></tr></thead><tbody>"#,
+    );
+    for group in groups {
+        let value =
+            |value: Option<f64>| value.map(format_number_full).unwrap_or_else(|| "—".into());
+        let share = |index: usize| {
+            if group.component_total > 0.0 {
+                format!(
+                    "{:.1}%",
+                    group.components[index] / group.component_total * 100.0
+                )
+            } else {
+                "—".into()
+            }
+        };
+        table.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}/{}</td><td>{}</td><td>{}–{}</td><td>{}–{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            group.label,
+            group.complete_days,
+            group.published_days,
+            value(group.median),
+            value(group.lower_quartile),
+            value(group.upper_quartile),
+            value(group.minimum),
+            value(group.maximum),
+            share(0), share(1), share(2), share(3), share(4)
         ));
     }
     table.push_str("</tbody></table></div></details>");

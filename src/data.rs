@@ -204,6 +204,21 @@ impl SmartMixMonth {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct WeekendSignature {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub minimum: Option<f64>,
+    pub lower_quartile: Option<f64>,
+    pub median: Option<f64>,
+    pub upper_quartile: Option<f64>,
+    pub maximum: Option<f64>,
+    pub components: [f64; 5],
+    pub component_total: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WeekdayDistribution {
     pub weekday: Weekday,
@@ -1038,6 +1053,60 @@ fn smart_subtype_components(record: &RidershipRecord) -> Option<[f64; 4]> {
         record.three_day_pass?,
         record.five_day_pass?,
     ])
+}
+
+/// Compare Monday–Friday, Saturday, and Sunday using only days with complete
+/// published parent components, so the distribution and fare-media shares share
+/// the same evidence base.
+pub fn weekend_signature_series(dataset: &Dataset, range: DateRange) -> Vec<WeekendSignature> {
+    [
+        ("weekday", "Monday–Friday"),
+        ("saturday", "Saturday"),
+        ("sunday", "Sunday"),
+    ]
+    .iter()
+    .map(|(key, label)| {
+        let matches = |weekday: Weekday| match *key {
+            "weekday" => weekday.num_days_from_monday() < 5,
+            "saturday" => weekday == Weekday::Sat,
+            _ => weekday == Weekday::Sun,
+        };
+        let rows: Vec<&RidershipRecord> = dataset
+            .records
+            .iter()
+            .filter(|record| {
+                record.date >= range.start
+                    && record.date <= range.end
+                    && matches(record.date.weekday())
+            })
+            .collect();
+        let mut totals = Vec::new();
+        let mut components = [0.0; 5];
+        let mut complete_days = 0;
+        for record in &rows {
+            if let Some(values) = parent_components(dataset, record) {
+                complete_days += 1;
+                totals.push(values.iter().sum::<f64>());
+                for (index, value) in values.iter().enumerate() {
+                    components[index] += value;
+                }
+            }
+        }
+        WeekendSignature {
+            key,
+            label,
+            published_days: rows.len(),
+            complete_days,
+            minimum: totals.iter().copied().reduce(f64::min),
+            lower_quartile: quantile(&totals, 0.25),
+            median: quantile(&totals, 0.5),
+            upper_quartile: quantile(&totals, 0.75),
+            maximum: totals.iter().copied().reduce(f64::max),
+            components,
+            component_total: components.iter().sum(),
+        }
+    })
+    .collect()
 }
 
 /// Distribution of observed total ridership for each weekday. Missing reports

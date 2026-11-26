@@ -3,13 +3,15 @@ use serde::Serialize;
 use crate::charts::{
     CHARTS, band_index, band_label, baseline_insight, fare_media_breakdown, format_number_full,
     format_range, insight_line, weekday_distribution_insight, weekday_name,
+    weekend_signature_insight,
 };
 use crate::data::{
     BASELINE_MIN_OBSERVATIONS, BASELINE_WINDOW, ComponentWaterfall, Dataset, DateRange,
     FareMixMonth, NcmcShareWeek, QrMixMonth, RangeSummary, RidershipRecord, SmartMixMonth,
-    WeekdayBaselinePoint, WeekdayDistribution, component_waterfall, fare_mix_series,
-    last_n_months_range, ncmc_share_series, qr_mix_series, record_index, smart_mix_series,
-    summarise, weekday_baseline_series, weekday_distribution_series,
+    WeekdayBaselinePoint, WeekdayDistribution, WeekendSignature, component_waterfall,
+    fare_mix_series, last_n_months_range, ncmc_share_series, qr_mix_series, record_index,
+    smart_mix_series, summarise, weekday_baseline_series, weekday_distribution_series,
+    weekend_signature_series,
 };
 use chrono::{Datelike, NaiveDate, Weekday};
 
@@ -147,6 +149,7 @@ pub struct PayloadCharts {
     pub qr_mix: FareMediaMixPayload,
     pub smart_mix: FareMediaMixPayload,
     pub weekday_distribution: WeekdayDistributionPayload,
+    pub weekend_signatures: WeekendSignaturesPayload,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -275,6 +278,34 @@ pub struct WeekdayBaselinePointPayload {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WeekendSignaturesPayload {
+    pub groups: Vec<WeekendSignaturePayload>,
+    pub insight: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeekendSignaturePayload {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub published_days: usize,
+    pub complete_days: usize,
+    pub minimum: Option<f64>,
+    pub minimum_label: Option<String>,
+    pub lower_quartile: Option<f64>,
+    pub lower_quartile_label: Option<String>,
+    pub median: Option<f64>,
+    pub median_label: Option<String>,
+    pub upper_quartile: Option<f64>,
+    pub upper_quartile_label: Option<String>,
+    pub maximum: Option<f64>,
+    pub maximum_label: Option<String>,
+    pub components: Vec<FareMixComponentPayload>,
+    pub tooltip: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WeekdayDistributionPayload {
     pub days: Vec<WeekdayDistributionDayPayload>,
     pub insight: String,
@@ -379,6 +410,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
     let smart_mix = smart_mix_payload(&smart_mix_series(dataset, range));
     let weekday_distribution =
         weekday_distribution_payload(&weekday_distribution_series(dataset, range));
+    let weekend_signatures = weekend_signatures_payload(&weekend_signature_series(dataset, range));
     ChartPayload {
         range: PayloadRange {
             start: range.start.to_string(),
@@ -437,6 +469,7 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
             qr_mix,
             smart_mix,
             weekday_distribution,
+            weekend_signatures,
         },
         presets: range_presets(dataset)
             .iter()
@@ -456,6 +489,78 @@ pub fn chart_payload_for(dataset: &Dataset, range: DateRange) -> ChartPayload {
                 method: definition.method,
             })
             .collect(),
+    }
+}
+
+fn weekend_signatures_payload(groups: &[WeekendSignature]) -> WeekendSignaturesPayload {
+    let group_payloads = groups
+        .iter()
+        .map(|group| {
+            let components = crate::data::WATERFALL_CATEGORIES
+                .iter()
+                .enumerate()
+                .map(|(index, (key, label))| {
+                    let value = group.components[index];
+                    let share = (group.component_total > 0.0)
+                        .then(|| value / group.component_total);
+                    FareMixComponentPayload {
+                        key,
+                        label,
+                        value,
+                        value_label: format_number_full(value),
+                        share,
+                        share_label: share.map(percent_label),
+                        tooltip: format!(
+                            "{} · {}: {} ({} of aggregate complete-day total)",
+                            group.label,
+                            label,
+                            format_number_full(value),
+                            share.map(percent_label).unwrap_or_else(|| "—".into())
+                        ),
+                    }
+                })
+                .collect();
+            let tooltip = if group.complete_days == 0 {
+                format!(
+                    "{}: no complete parent-component days among {} published days.",
+                    group.label, group.published_days
+                )
+            } else {
+                format!(
+                    "{}: median {}, interquartile range {}–{}, full range {}–{}; {} complete of {} published days.",
+                    group.label,
+                    group.median.map(format_number_full).unwrap_or_else(|| "—".into()),
+                    group.lower_quartile.map(format_number_full).unwrap_or_else(|| "—".into()),
+                    group.upper_quartile.map(format_number_full).unwrap_or_else(|| "—".into()),
+                    group.minimum.map(format_number_full).unwrap_or_else(|| "—".into()),
+                    group.maximum.map(format_number_full).unwrap_or_else(|| "—".into()),
+                    group.complete_days,
+                    group.published_days
+                )
+            };
+            WeekendSignaturePayload {
+                key: group.key,
+                label: group.label,
+                published_days: group.published_days,
+                complete_days: group.complete_days,
+                minimum: group.minimum,
+                minimum_label: group.minimum.map(format_number_full),
+                lower_quartile: group.lower_quartile,
+                lower_quartile_label: group.lower_quartile.map(format_number_full),
+                median: group.median,
+                median_label: group.median.map(format_number_full),
+                upper_quartile: group.upper_quartile,
+                upper_quartile_label: group.upper_quartile.map(format_number_full),
+                maximum: group.maximum,
+                maximum_label: group.maximum.map(format_number_full),
+                components,
+                tooltip,
+            }
+        })
+        .collect();
+    WeekendSignaturesPayload {
+        groups: group_payloads,
+        insight: weekend_signature_insight(groups),
     }
 }
 

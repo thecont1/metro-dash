@@ -10,6 +10,7 @@ use crate::data::{
     BaselineStatus, Dataset, DateRange, RangeSummary, choose_range, clean_number,
     component_waterfall, fare_mix_series, ncmc_share_series, parse_dataset, qr_mix_series,
     quantile, smart_mix_series, summarise, weekday_baseline_series, weekday_distribution_series,
+    weekend_signature_series,
 };
 use crate::payload::chart_payload_for;
 use crate::render::{chart_jump_markup, parse_query, range_action_links};
@@ -167,6 +168,31 @@ fn weekday_baseline_uses_nearby_same_weekday_reports_but_not_the_current_day() {
     assert_eq!(target.lower_quartile, Some(112.5));
     assert_eq!(target.upper_quartile, Some(137.5));
     assert_eq!(target.status, BaselineStatus::High);
+}
+
+#[test]
+fn weekend_signatures_use_complete_parent_days_for_distribution_and_mix() {
+    let csv = "Record Date,Total Smart Cards,Total NCMC,Total Tokens,Group Ticket,Total QR\n\
+05-01-2024,50,10,20,10,10\n\
+06-01-2024,30,10,10,0,10\n\
+07-01-2024,20,5,10,0,5\n\
+08-01-2024,50,,20,10,10\n";
+    let dataset = parse_dataset(csv, "fixture".into()).unwrap();
+    let groups = weekend_signature_series(
+        &dataset,
+        DateRange {
+            start: NaiveDate::from_ymd_opt(2024, 1, 5).unwrap(),
+            end: NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(),
+        },
+    );
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].published_days, 2);
+    assert_eq!(groups[0].complete_days, 1);
+    assert_eq!(groups[0].median, Some(100.0));
+    assert_eq!(groups[0].components, [50.0, 10.0, 20.0, 10.0, 10.0]);
+    assert_eq!(groups[1].complete_days, 1);
+    assert_eq!(groups[1].median, Some(60.0));
+    assert_eq!(groups[2].median, Some(40.0));
 }
 
 #[test]
@@ -577,6 +603,11 @@ fn chart_payload_is_chart_ready_without_js_business_logic() {
             .unwrap()
             .contains("weekdayDistribution")
     );
+    assert!(
+        serde_json::to_string(&payload)
+            .unwrap()
+            .contains("weekendSignatures")
+    );
     assert!(!payload.charts.component_waterfall.available);
     assert_eq!(payload.charts.weekday_baseline.window, 12);
     assert_eq!(
@@ -609,7 +640,7 @@ fn client_script_supports_direct_chart_selection() {
 fn charts_are_configured_to_fill_available_width() {
     assert!(STYLE.contains(".data-card-wrap{width:100%}"));
     assert!(STYLE.contains(
-        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg,.d3-smart-svg,.d3-dist-svg{display:block;width:100%"
+        ".d3-line-svg,.d3-baseline-svg,.d3-waterfall-svg,.d3-mix-svg,.d3-ncmc-svg,.d3-qr-svg,.d3-smart-svg,.d3-dist-svg,.d3-signature-svg{display:block;width:100%"
     ));
     assert!(CLIENT_SCRIPT.contains("window.addEventListener('resize'"));
 }
